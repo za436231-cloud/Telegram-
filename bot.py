@@ -5,6 +5,9 @@ import unicodedata
 import html
 import asyncio
 import logging
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton as Btn, InlineKeyboardMarkup as Markup
 from telegram.constants import ParseMode, ChatType
 from telegram.error import TelegramError, BadRequest
@@ -593,6 +596,4 @@ async def approve_and_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE
             await safe_delete(context.bot, chat.id, old_id)
 
     try:
-        sent = await context.bot.send_message(chat.id, build(template), parse_mode=ParseMode.HTML)
-    except TelegramError as e:
-        lo
+        sent = await context.bot.send_message(chat.id
