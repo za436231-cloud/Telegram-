@@ -25,17 +25,16 @@ logging.basicConfig(
 )
 
 # ================= Settings =================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YAHAN_APNA_BOT_TOKEN_DAALO")
-# Apna Telegram user ID (@userinfobot se mil jaata hai). Kai admin ho to comma se alag karo: 123,456
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YAHAN_APNA_BOT_TOKEN_DAALO").strip()
+# Apna Telegram user ID. Kai admin ho to comma se alag karo: 123,456
 OWNER_ID = os.getenv("OWNER_ID", "7054168366")
-# Persistent storage ke liye (Railway/Render volume): DATA_FILE env se path do
 # ============================================
 
 OWNER_IDS = {int(x) for x in OWNER_ID.replace(" ", "").split(",") if x.isdigit()}
 
 DATA_FILE = os.getenv(
     "DATA_FILE",
-    os.path.join(os.path.dirname(os.path.abspath(file)), "data.json"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"),
 )
 
 EMOJI_APPROVED = "5197474765387864959"
@@ -83,8 +82,13 @@ def load_data() -> dict:
 
 
 def save_data() -> None:
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        tmp = DATA_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, DATA_FILE)
+    except OSError as e:
+        logging.error("Data save nahi hua: %s", e)
 
 
 data = load_data()
@@ -163,6 +167,9 @@ async def cmd_here(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_owner(update.effective_user.id):
         return
     chat = update.effective_chat
+    if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await update.message.reply_text("Ye command group mein likho.")
+        return
     data["groups"][str(chat.id)] = chat.title or str(chat.id)
     save_data()
     await update.message.reply_text("✅ Ye group panel mein add ho gaya.")
@@ -233,7 +240,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         save_data()
         await edit(q, menu_text(), main_menu())
 
-elif d == "dp":
+    elif d == "dp":
         s["delete_previous"] = not s["delete_previous"]
         save_data()
         await edit(q, menu_text(), main_menu())
@@ -436,8 +443,7 @@ def find_escrowers(amount: float) -> list:
 
     1. Exact range match.
     2. Boundary par (jaise 5000 dono ranges mein) -> sabse specific (highest min) wala.
-    3. Gap mein ho (jaise 5000.50 jab ranges 0-5000 aur 5001-20000 hon)
-       -> neeche wala escrower, kyunki amount agle range se pehle hi hai.
+    3. Gap mein ho -> neeche wala escrower.
     4. Sab ranges ke upar / neeche ho -> koi nahi.
     """
     escrowers = data["escrowers"]
@@ -450,7 +456,6 @@ def find_escrowers(amount: float) -> list:
         best_min = max(e["min"] for e in matches)
         return [e for e in matches if e["min"] == best_min]
 
-    # Gap check: amount kisi range ke max se upar aur kisi doosre range ke min se neeche
     lower = [e for e in escrowers if e["max"] is not None and e["max"] < amount]
     upper = [e for e in escrowers if e["min"] > amount]
     if lower and upper:
@@ -461,7 +466,7 @@ def find_escrowers(amount: float) -> list:
 
 
 def parse_escrow_form(text: str):
-    # Fancy bold letters (𝗘𝗦𝗖𝗥𝗢𝗪) ko normal letters mein badal do
+    # Fancy bold letters ko normal letters mein badal do
     t = unicodedata.normalize("NFKC", text)
     up = t.upper()
     if not ("ESCROW" in up and "SELLER" in up and "BUYER" in up and "AMOUNT" in up):
@@ -474,7 +479,7 @@ def parse_escrow_form(text: str):
     raw = field(r"DEAL\s*AMOUNT") or field(r"AMOUNT")
     amount = parse_amount(raw) if raw else None
 
-return {
+    return {
         "seller": field(r"SELLER") or "-",
         "buyer": field(r"BUYER") or "-",
         "amount": amount,
@@ -523,6 +528,8 @@ async def on_group_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # ---------------- Groups track karna ----------------
 async def track_groups(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ev = update.my_chat_member
+    if not ev:
+        return
     chat = ev.chat
     if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
         return
@@ -562,14 +569,18 @@ async def approve_and_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE
         save_data()
         return
 
-    await request.approve()
+    try:
+        await request.approve()
+    except TelegramError as e:
+        logging.warning("Approve fail hua (%s): %s", user.id, e)
+        return
     data["approved"] += 1
     save_data()
 
     if user.username:
         user_text = f"@{user.username}"
     else:
-        user_text = f'<a href="tg://user?id={user.id}">{html.escape(user.first_name)}</a>'
+        user_text = f'<a href="tg://user?id={user.id}">{html.escape(user.first_name or "User")}</a>'
 
     template = s["welcome_text"] or DEFAULT_WELCOME
 
@@ -584,5 +595,4 @@ async def approve_and_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         sent = await context.bot.send_message(chat.id, build(template), parse_mode=ParseMode.HTML)
     except TelegramError as e:
-        logging.warning("Custom text fail hua (%s), default bhej raha hoon", e)
-        sent = await context.bot.send_message(chat.id, build(DEFAULT_WELCOME), parse_mode=
+        lo
