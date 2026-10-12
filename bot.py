@@ -35,7 +35,7 @@ OWNER_IDS = {int(x) for x in OWNER_ID.replace(" ", "").split(",") if x.isdigit()
 
 DATA_FILE = os.getenv(
     "DATA_FILE",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"),
+    os.path.join(os.path.dirname(os.path.abspath(file)), "data.json"),
 )
 
 EMOJI_APPROVED = "5197474765387864959"
@@ -233,7 +233,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         save_data()
         await edit(q, menu_text(), main_menu())
 
-    elif d == "dp":
+elif d == "dp":
         s["delete_previous"] = not s["delete_previous"]
         save_data()
         await edit(q, menu_text(), main_menu())
@@ -474,7 +474,7 @@ def parse_escrow_form(text: str):
     raw = field(r"DEAL\s*AMOUNT") or field(r"AMOUNT")
     amount = parse_amount(raw) if raw else None
 
-    return {
+return {
         "seller": field(r"SELLER") or "-",
         "buyer": field(r"BUYER") or "-",
         "amount": amount,
