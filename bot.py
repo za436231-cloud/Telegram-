@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 
 # ================= Settings =================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YAHAN_APNA_BOT_TOKEN_DAALO").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8746757539:AAGkqBRpDOixBP4J2vokGLDyB-C7JBmqngg").strip()
 # Apna Telegram user ID. Kai admin ho to comma se alag karo: 123,456
 OWNER_ID = os.getenv("OWNER_ID", "7054168366")
 # ============================================
