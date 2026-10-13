@@ -12,6 +12,8 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 
@@ -20,7 +22,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-BOT_TOKEN = "8656406498:AAEsl02_R0wNLAp4tVMaFNZBa-KOKN3T_2Y"   # apni purani token wali line yahan rakho
+BOT_TOKEN = "8656406498:AAEsl02_R0wNLAp4tVMaFNZBa-KOKN3T_2Y"   # apni token wali line yahan rakho
 GROUP_ID = -1004383728292
 DB_PATH = os.environ.get("DB_PATH", "bot.db")
 
@@ -57,6 +59,10 @@ def inr(x):
 
 def esc(x):
     return html.escape(str(x))
+
+
+def tag(x):
+    return "-" if x == "-" else f"@{esc(x)}"
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,6 +119,31 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ---------- Naye member ka welcome ----------
+async def welcome_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if chat.id != GROUP_ID:
+        return
+
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+        mention = f'<a href="tg://user?id={member.id}">{esc(member.first_name or "User")}</a>'
+        text = (
+            f"⭐️ <b>Welcome</b> {mention}<b>!</b>\n"
+            "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+            "❤️ <b>Escrow Group of @rizzlerxescrow</b>\n"
+            "💬 <b>Deal se pehle rules zaroor padho.</b>\n"
+            "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+            "Deal karne ke liye admin se sampark karo ⚡️"
+        )
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+        )
+
+
 # ---------- /add and /close (sirf group mein, sirf admin) ----------
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -123,9 +154,9 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     args = context.args
-    if len(args) < 3:
+    if len(args) < 1:
         await update.message.reply_text(
-            "Use: <code>/add 500 @buyer @seller</code>", parse_mode=ParseMode.HTML
+            "Use: <code>/add 500</code>", parse_mode=ParseMode.HTML
         )
         return
     try:
@@ -134,8 +165,10 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Amount number mein likho.")
         return
 
-    buyer = args[1].lstrip("@").lower()
-    seller = args[2].lstrip("@").lower()
+    # buyer aur seller optional hain
+    buyer = args[1].lstrip("@").lower() if len(args) > 1 else "-"
+    seller = args[2].lstrip("@").lower() if len(args) > 2 else "-"
+
     trade_id = "DL-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     admin = update.effective_user
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -152,8 +185,12 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💰 <b>Deal Added</b>\n"
         f"🆔 <b>Trade ID:</b> <code>{trade_id}</code>\n"
         f"💵 <b>Amount:</b> {inr(amount)}\n"
-        f"👤 <b>Buyer:</b> @{esc(buyer)}\n"
-        f"👤 <b>Seller:</b> @{esc(seller)}\n"
+    )
+    if buyer != "-":
+        text += f"👤 <b>Buyer:</b> {tag(buyer)}\n"
+    if seller != "-":
+        text += f"👤 <b>Seller:</b> {tag(seller)}\n"
+    text += (
         f"🛡️ <b>Escrowed By:</b> {esc(admin.first_name or 'Admin')}\n"
         "\nDeal close karne ke liye: "
         f"<code>/close {trade_id}</code>"
@@ -194,11 +231,15 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "✅ <b>Deal Completed</b>\n"
         f"🆔 <b>Trade ID:</b> <code>{trade_id}</code>\n"
-        f"💵 <b>Released:</b> {inr(amount)}\n\n"
-        f"Buyer: @{esc(buyer)}\n"
-        f"Seller: @{esc(seller)}\n"
-        f"Escrowed By: {esc(escrower)}"
+        f"💵 <b>Released:</b> {inr(amount)}\n"
     )
+    if buyer != "-" or seller != "-":
+        text += "\n"
+        if buyer != "-":
+            text += f"Buyer: {tag(buyer)}\n"
+        if seller != "-":
+            text += f"Seller: {tag(seller)}\n"
+    text += f"Escrowed By: {esc(escrower)}"
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
@@ -235,6 +276,13 @@ def screen_my_status(user):
     )
 
 
+def deal_line(t, a, b, s, c):
+    people = ""
+    if b != "-" or s != "-":
+        people = f"\n   {tag(b)} ➜ {tag(s)}"
+    return f"🆔 <code>{t}</code> | {inr(a)}{people}\n   🕒 {esc(c)}"
+
+
 def screen_my_deals(user):
     uname, uid = user_filter(user)
     with db() as con:
@@ -248,9 +296,7 @@ def screen_my_deals(user):
         return "📁 <b>My Deals Info</b>\n\nAbhi koi completed deal nahi hai."
     lines = ["📁 <b>My Deals Info</b> (last 10)", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
     for t, a, b, s, c in rows:
-        lines.append(
-            f"🆔 <code>{t}</code> | {inr(a)}\n   @{esc(b)} ➜ @{esc(s)} | {esc(c)}"
-        )
+        lines.append(deal_line(t, a, b, s, c))
     return "\n".join(lines)
 
 
@@ -267,9 +313,7 @@ def screen_my_pending(user):
         return "⏳ <b>My Pending Deals</b>\n\nAbhi koi pending deal nahi hai."
     lines = ["⏳ <b>My Pending Deals</b>", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
     for t, a, b, s, c in rows:
-        lines.append(
-            f"🆔 <code>{t}</code> | {inr(a)}\n   @{esc(b)} ➜ @{esc(s)} | {esc(c)}"
-        )
+        lines.append(deal_line(t, a, b, s, c))
     return "\n".join(lines)
 
 
@@ -345,6 +389,7 @@ def main():
     app.add_handler(CommandHandler("add", add))
     app.add_handler(CommandHandler("close", close))
     app.add_handler(CallbackQueryHandler(on_button))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new))
     print("Bot started...")
     app.run_polling(drop_pending_updates=True)
 
