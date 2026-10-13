@@ -1,41 +1,36 @@
-# Command: /report
-import requests
-
-BOT_TOKEN = "8746757539:AAGkqBRpDOixBP4J2vokGLDyB-C7JBmqngg"
-
 chat_id = message.chat.id
 user = message.from_user
 
 name = user.first_name if user.first_name else "User"
-uid = user.id
+name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 text = (
-    "<b>📊 REPORT MENU</b>\n"
-    "━━━━━━━━━━━━━━\n"
-    f"👤 <b>Name:</b> {name}\n"
-    f"🆔 <b>User ID:</b> <code>{uid}</code>\n"
-    "━━━━━━━━━━━━━━\n"
-    "Neeche se option select karo 👇"
+    f"⭐️ <b>Welcome {name}!</b>\n"
+    "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+    "❤️ <b>Escrow Bot for @rizzlerxescrow</b>\n"
+    "💬 <b>Provided by @rizzlerxescrow</b>\n"
+    "\n"
+    "🍑 <b>This is Your Personal Dashboard:</b>\n"
+    "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+    "Select the option below ⚡️"
 )
 
 buttons = {
     "inline_keyboard": [
         [
-            {"text": "📅 Aaj ki Report", "callback_data": "rep_today"},
-            {"text": "📆 Weekly Report", "callback_data": "rep_week"}
+            {"text": "📊 My Status", "callback_data": "my_status"},
+            {"text": "📁 My Deals Info", "callback_data": "my_deals"}
         ],
         [
-            {"text": "👤 My Report", "callback_data": "rep_me"}
+            {"text": "⏳ My Pending Deals", "callback_data": "my_pending"}
+        ],
+        [
+            {"text": "🌍 Escrow Global Status", "callback_data": "global_status"}
         ]
     ]
 }
 
-url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-data = {
-    "chat_id": chat_id,
-    "text": text,
-    "parse_mode": "HTML",
-    "reply_markup": buttons
-}
-
-requests.post(url, json=data)
+try:
+    bot.sendMessage(text, chat_id=chat_id, parse_mode="HTML", reply_markup=buttons)
+except:
+    bot.sendMessage(text, chat_id=chat_id, parse_mode="HTML")
