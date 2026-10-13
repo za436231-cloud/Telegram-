@@ -1,5 +1,6 @@
 chat_id = message.chat.id
 user = message.from_user
+BOT_TOKEN = "8746757539:AAGkqBRpDOixBP4J2vokGLDyB-C7JBmqngg"
 
 name = user.first_name if user.first_name else "User"
 name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
