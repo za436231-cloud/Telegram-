@@ -30,7 +30,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"
+BOT_TOKEN = os.environ.get("8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4") or "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"
 
 if "YAHAN_APNA_TOKEN" in BOT_TOKEN or ":" not in BOT_TOKEN:
     raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
