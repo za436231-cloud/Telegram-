@@ -31,7 +31,7 @@ logging.basicConfig(
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAHUZicwKi75gQigVzugwvU44wSyH1DKgO0"
 
-if "YAHAN_APNA_TOKEN" in BOT_TOKEN or ":" not in BOT_TOKEN:
+if "8974209978:AAHUZicwKi75gQigVzugwvU44wSyH1DKgO0" in BOT_TOKEN or ":" not in BOT_TOKEN:8974209978:AAHUZicwKi75gQigVzugwvU44wSyH1DKgO0
     raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
 
 GROUP_ID = -1004383728292
@@ -41,50 +41,41 @@ DB_PATH = os.environ.get("DB_PATH", "bot.db")
 LOCK_TIME = time(18, 30, tzinfo=timezone.utc)
 UNLOCK_TIME = time(0, 30, tzinfo=timezone.utc)
 
-# ---------- Premium emoji (ID, fallback emoji) ----------
-EM = {
-    # welcome (join request)
-    "join": ("5197474765387864959", "✅"),
-    "welcome": ("5316727448644103237", "👋"),
-    "trusted": ("5821077289185578407", "🛡"),
-    # dashboard
-    "star": ("5958376256788502078", "⭐️"),
-    "shield_bot": ("5778423822940114949", "🛡"),
-    "chat": ("5891243564309942507", "💬"),
-    "pin": ("5796440171364749940", "📌"),
-    "bolt": ("5843553939672274145", "⚡️"),
-    # deal messages
-    "money_add": ("5811989245761426317", "💰"),
-    "done_title": ("5951665890079544884", "✅"),
-    "tag_id": ("5985433648810171091", "🏷"),
-    "amount": ("5771755323572359189", "💎"),
-    "form": ("5879841310902324730", "✏️"),
-    "buyer": ("5877530150345641603", "👤"),
-    "seller": ("5954175920506933873", "👤"),
-    "shield": ("5926783847453692661", "🛡"),
-    "hint": ("5886446115905082831", "📍"),
-    # screens
-    "chart": ("5913702317667913862", "📊"),
-    "idcard": ("5936017305585586269", "🪪"),
-    "rank": ("5933629020301169337", "📊"),
-    "doc": ("5956561916573782596", "📄"),
-    "done": ("5920052658743283381", "✅"),
-    "money": ("5778318458802409852", "💰"),
-    "fee": ("5967548335542767952", "💳"),
-    "top": ("5994378914636500516", "📈"),
-    "pending": ("5967382867632722656", "📅"),
-    # lock / errors
-    "lock": ("5879895758202735862", "🔒"),
-    "unlock": ("6034962180875490251", "🔓"),
-    "warn": ("5881702736843511327", "⚠️"),
-    "admin": ("6028226658543082010", "🔨"),
-}
 
-
-def e(name):
-    eid, fallback = EM[name]
+# ---------- Premium emojis ----------
+def ce(eid, fallback):
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
+
+# Welcome
+E_JOIN = "5197474765387864959"
+E_WELCOME = "5316727448644103237"
+E_TRUSTED = "5821077289185578407"
+
+STAR = ce("5958376256788502078", "⭐️")
+CHAT = ce("5891243564309942507", "💬")
+BOLT = ce("5843553939672274145", "⚡️")
+SIGN = ce("5994636050033545139", "🪧")
+BAG = ce("5811989245761426317", "💰")
+GEM = ce("5771755323572359189", "💎")
+BIG = ce("5778546023349621090", "💎")
+TAGI = ce("5985433648810171091", "🏷")
+CARD = ce("5936017305585586269", "🪪")
+USER = ce("5879770735999717115", "👤")
+BUYER = ce("5877530150345641603", "👤")
+SELLER = ce("5954175920506933873", "👤")
+SHIELD = ce("5926783847453692661", "🛡")
+DONE = ce("5920052658743283381", "✅")
+REL = ce("5951665890079544884", "✅")
+FEE = ce("5967548335542767952", "💳")
+CAL = ce("5967382867632722656", "📅")
+CHART = ce("5913702317667913862", "📊")
+FILE = ce("5956561916573782596", "📄")
+TREND = ce("5994378914636500516", "📈")
+PIN = ce("5796440171364749940", "📌")
+WARN = ce("5881702736843511327", "⚠️")
+LOCK = ce("5879895758202735862", "🔒")
+UNLOCK = ce("6034962180875490251", "🔓")
 
 LOCKED = ChatPermissions(
     can_send_messages=False,
@@ -144,15 +135,15 @@ def mention(uid, name):
     return f'<a href="tg://user?id={uid}">{esc(name or "User")}</a>'
 
 
-async def err(msg, text, key="warn"):
-    await msg.reply_text(f"{e(key)} {text}", parse_mode=ParseMode.HTML)
-
-
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     member = await context.bot.get_chat_member(
         update.effective_chat.id, update.effective_user.id
     )
     return member.status in ("administrator", "creator")
+
+
+async def reply_html(message, text):
+    return await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 # ---------- Database ----------
@@ -179,7 +170,6 @@ def init_db():
             )
             """
         )
-        # naye columns (purane database ke saath bhi chalega)
         for col, typ in (
             ("form_msg_id", "INTEGER"),
             ("form_user_id", "INTEGER"),
@@ -195,14 +185,14 @@ def init_db():
 # ---------- /start dashboard ----------
 def dashboard_text(name):
     return (
-        f"{e('star')} <b>Welcome {esc(name)}!</b>\n"
+        f"{STAR} <b>Welcome {esc(name)}!</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"{e('shield_bot')} <b>Escrow Bot for @rizzlerxescrow</b>\n"
-        f"{e('chat')} <b>Provided by @rizzlerxescrow</b>\n"
+        f"{SHIELD} <b>Escrow Bot for @rizzlerxescrow</b>\n"
+        f"{CHAT} <b>Provided by @rizzlerxescrow</b>\n"
         "\n"
-        f"{e('pin')} <b>This is Your Personal Dashboard:</b>\n"
+        f"{SIGN} <b>This is Your Personal Dashboard:</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"Select the option below {e('bolt')}"
+        f"Select the option below {BOLT}"
     )
 
 
@@ -238,43 +228,44 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != GROUP_ID:
         return
     if not await is_admin(update, context):
-        await err(msg, "Sirf admin ye command use kar sakta hai.", "admin")
+        await reply_html(msg, f"{WARN} Sirf admin ye command use kar sakta hai.")
         return
 
     form = msg.reply_to_message
     if not form:
-        await err(msg, "Form par <b>reply</b> karke likho: <code>/add 400</code>")
+        await reply_html(msg, f"{WARN} Form par <b>reply</b> karke likho: <code>/add 400</code>")
         return
     if not context.args:
-        await err(msg, "Amount bhi likho: <code>/add 400</code>")
+        await reply_html(msg, f"{WARN} Amount bhi likho: <code>/add 400</code>")
         return
     try:
         amount = float(context.args[0].replace(",", ""))
         if amount <= 0:
             raise ValueError
     except ValueError:
-        await err(msg, "Amount sahi number mein likho.")
+        await reply_html(msg, f"{WARN} Amount sahi number mein likho.")
         return
 
     form_user = form.from_user
     if form_user is None or form_user.is_bot:
-        await err(msg, "Ye form kisi member ka hona chahiye.")
+        await reply_html(msg, f"{WARN} Ye form kisi member ka hona chahiye.")
         return
 
-    # buyer/seller: /add ke baad likha ho to wo, warna form ke @username se
     form_text = form.text or form.caption or ""
     found = re.findall(r"@([A-Za-z0-9_]{4,32})", form_text)
     args = context.args
     buyer = args[1].lstrip("@").lower() if len(args) > 1 else (found[0].lower() if len(found) > 0 else "-")
     seller = args[2].lstrip("@").lower() if len(args) > 2 else (found[1].lower() if len(found) > 1 else "-")
 
-with db() as con:
+    with db() as con:
         exists = con.execute(
             "SELECT trade_id FROM deals WHERE group_id=? AND form_msg_id=? AND status='pending'",
             (GROUP_ID, form.message_id),
         ).fetchone()
         if exists:
-            await err(msg, f"Is form ka deal pehle se add hai: <code>{exists[0]}</code>")
+            await reply_html(
+                msg, f"{WARN} Is form ka deal pehle se add hai: <code>{exists[0]}</code>"
+            )
             return
 
         trade_id = "DL-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -290,21 +281,21 @@ with db() as con:
         )
 
     text = (
-        f"{e('money_add')} <b>Deal Added</b>\n"
-        f"{e('tag_id')} <b>Trade ID:</b> <code>{trade_id}</code>\n"
-        f"{e('amount')} <b>Amount:</b> {inr(amount)}\n"
-        f"{e('form')} <b>Form:</b> {mention(form_user.id, form_user.first_name)}\n"
+        f"{BAG} <b>Deal Added</b>\n"
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>\n"
+        f"{GEM} <b>Amount:</b> {inr(amount)}\n"
+        f"{USER} <b>Form:</b> {mention(form_user.id, form_user.first_name)}\n"
     )
     if buyer != "-":
-        text += f"{e('buyer')} <b>Buyer:</b> {tag(buyer)}\n"
+        text += f"{BUYER} <b>Buyer:</b> {tag(buyer)}\n"
     if seller != "-":
-        text += f"{e('seller')} <b>Seller:</b> {tag(seller)}\n"
+        text += f"{SELLER} <b>Seller:</b> {tag(seller)}\n"
     text += (
-        f"{e('shield')} <b>Escrowed By:</b> {esc(admin.first_name or 'Admin')}\n"
-        f"\n{e('hint')} Close karne ke liye form par reply karke "
-        "<code>/close 360</code> jaisa likho (360 = release amount)."
+        f"{SHIELD} <b>Escrowed By:</b> {esc(admin.first_name or 'Admin')}\n"
+        "\nClose karne ke liye form par reply karke <code>/close 360</code> jaisa likho "
+        "(360 = release amount)."
     )
-    await form.reply_text(text, parse_mode=ParseMode.HTML)
+    await reply_html(form, text)
 
 
 async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -312,22 +303,22 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != GROUP_ID:
         return
     if not await is_admin(update, context):
-        await err(msg, "Sirf admin ye command use kar sakta hai.", "admin")
+        await reply_html(msg, f"{WARN} Sirf admin ye command use kar sakta hai.")
         return
 
     form = msg.reply_to_message
     if not form:
-        await err(msg, "Form par <b>reply</b> karke likho: <code>/close 360</code>")
+        await reply_html(msg, f"{WARN} Form par <b>reply</b> karke likho: <code>/close 360</code>")
         return
     if not context.args:
-        await err(msg, "Release amount bhi likho: <code>/close 360</code>")
+        await reply_html(msg, f"{WARN} Release amount bhi likho: <code>/close 360</code>")
         return
     try:
         released = float(context.args[0].replace(",", ""))
         if released <= 0:
             raise ValueError
     except ValueError:
-        await err(msg, "Release amount sahi number mein likho.")
+        await reply_html(msg, f"{WARN} Release amount sahi number mein likho.")
         return
 
     with db() as con:
@@ -337,12 +328,14 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (GROUP_ID, form.message_id),
         ).fetchone()
         if not row:
-            await err(msg, "Is form ka koi pending deal nahi mila. Pehle /add karo.")
+            await reply_html(msg, f"{WARN} Is form ka koi pending deal nahi mila. Pehle /add karo.")
             return
 
         deal_id, trade_id, amount, buyer, seller, escrower, fuid, fname = row
         if released > amount:
-            await err(msg, f"Release amount deal amount ({inr(amount)}) se zyada nahi ho sakta.")
+            await reply_html(
+                msg, f"{WARN} Release amount deal amount ({inr(amount)}) se zyada nahi ho sakta."
+            )
             return
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -353,21 +346,21 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     fee = amount - released
     text = (
-        f"{e('done_title')} <b>Deal Completed</b>\n"
-        f"{e('tag_id')} <b>Trade ID:</b> <code>{trade_id}</code>\n"
-        f"{e('amount')} <b>Amount:</b> {inr(amount)}\n"
-        f"{e('fee')} <b>Fee:</b> {inr(fee)}\n"
-        f"{e('done')} <b>Released:</b> {inr(released)}\n"
+        f"{DONE} <b>Deal Completed</b>\n"
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>\n"
+        f"{GEM} <b>Amount:</b> {inr(amount)}\n"
+        f"{FEE} <b>Fee:</b> {inr(fee)}\n"
+        f"{REL} <b>Released:</b> {inr(released)}\n"
     )
     if fuid:
-        text += f"{e('form')} <b>Form:</b> {mention(fuid, fname)}\n"
+        text += f"{USER} <b>Form:</b> {mention(fuid, fname)}\n"
     if buyer != "-":
-        text += f"{e('buyer')} <b>Buyer:</b> {tag(buyer)}\n"
+        text += f"{BUYER} <b>Buyer:</b> {tag(buyer)}\n"
     if seller != "-":
-        text += f"{e('seller')} <b>Seller:</b> {tag(seller)}\n"
-    text += f"{e('shield')} <b>Escrowed By:</b> {esc(escrower)}"
+        text += f"{SELLER} <b>Seller:</b> {tag(seller)}\n"
+    text += f"{SHIELD} <b>Escrowed By:</b> {esc(escrower)}"
 
-    await form.reply_text(text, parse_mode=ParseMode.HTML)
+    await reply_html(form, text)
 
 
 # ---------- Screens (sirf GROUP_ID ka data) ----------
@@ -388,24 +381,24 @@ def screen_total():
             (GROUP_ID,),
         ).fetchone()
     return (
-        f"{e('chart')} <b>Total Deal</b>\n"
+        f"{CHART} <b>Total Deal</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"{e('doc')} Total Deals: <b>{total}</b>\n"
-        f"{e('done')} Completed: <b>{done[0]}</b>\n"
-        f"{e('money')} Total Amount: <b>{inr(done[1])}</b>\n"
-        f"{e('fee')} Total Fee: <b>{inr(done[1] - done[3])}</b>\n"
-        f"{e('top')} Biggest Deal: <b>{inr(done[2])}</b>\n"
-        f"{e('pending')} Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
+        f"{CARD} Total Deals: <b>{total}</b>\n"
+        f"{DONE} Completed: <b>{done[0]}</b>\n"
+        f"{BAG} Total Amount: <b>{inr(done[1])}</b>\n"
+        f"{FEE} Total Fee: <b>{inr(done[1] - done[3])}</b>\n"
+        f"{BIG} Biggest Deal: <b>{inr(done[2])}</b>\n"
+        f"{PIN} Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
     )
 
 
 def deal_line(t, a, r, b, s, status, when):
-    icon = e("done") if status == "completed" else e("pending")
+    icon = DONE if status == "completed" else PIN
     amt = inr(a) if r is None else f"{inr(a)} ➜ {inr(r)}"
     people = ""
     if b != "-" or s != "-":
         people = f"\n   {tag(b)} ➜ {tag(s)}"
-    return f"{icon} <code>{t}</code> | {amt}{people}\n   🕒 {esc(when)}"
+    return f"{icon} <code>{t}</code> | {amt}{people}\n   {CAL} {esc(when)}"
 
 
 def screen_my_deal(user):
@@ -430,11 +423,11 @@ def screen_my_deal(user):
         ).fetchall()
 
     head = (
-        f"{e('idcard')} <b>My Deal Info</b>\n"
+        f"{FILE} <b>My Deal Info</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"{e('doc')} Total: <b>{total}</b>\n"
-        f"{e('done')} Completed: <b>{done[0]}</b> ({inr(done[1])})\n"
-        f"{e('pending')} Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
+        f"{CARD} Total: <b>{total}</b>\n"
+        f"{DONE} Completed: <b>{done[0]}</b> ({inr(done[1])})\n"
+        f"{PIN} Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
     )
     if not rows:
         return head + "\n\nAbhi koi deal nahi hai."
@@ -454,10 +447,10 @@ def screen_ranking():
             (GROUP_ID,),
         ).fetchall()
     if not rows:
-        return f"{e('rank')} <b>Global Ranking</b>\n\nAbhi koi completed deal nahi hai."
+        return f"{TREND} <b>Global Ranking</b>\n\nAbhi koi completed deal nahi hai."
 
     medals = ["🥇", "🥈", "🥉"]
-    lines = [f"{e('rank')} <b>Global Ranking</b> (Top Escrowers)", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
+    lines = [f"{TREND} <b>Global Ranking</b> (Top Escrowers)", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
     for i, (name, cnt, amt) in enumerate(rows):
         rank = medals[i] if i < 3 else f"{i + 1}."
         lines.append(f"{rank} <b>{esc(name)}</b> — {cnt} deals | {inr(amt)}")
@@ -470,7 +463,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
     data = query.data
 
-if data == "back":
+    if data == "back":
         text = dashboard_text(user.first_name or "User")
         markup = dashboard_buttons()
     else:
@@ -485,16 +478,16 @@ if data == "back":
 
     try:
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
-    except Exception as ex:
-        logging.warning("edit failed: %s", ex)
+    except Exception as e:
+        logging.warning("edit failed: %s", e)
 
 
 # ---------- Welcome ----------
 def welcome_text(user):
     return (
-        f"{e('join')} <b>JOIN REQUEST ACCEPT</b>\n\n"
-        f"{e('welcome')} <b>WELCOME</b> {user_tag(user)}\n\n"
-        f"{e('trusted')} <b>TRUSTED DEAL ESCROW SERVICE</b>"
+        f'<tg-emoji emoji-id="{E_JOIN}">✅</tg-emoji> <b>JOIN REQUEST ACCEPT</b>\n\n'
+        f'<tg-emoji emoji-id="{E_WELCOME}">👋</tg-emoji> <b>WELCOME</b> {user_tag(user)}\n\n'
+        f'<tg-emoji emoji-id="{E_TRUSTED}">🛡</tg-emoji> <b>TRUSTED DEAL ESCROW SERVICE</b>'
     )
 
 
@@ -515,8 +508,8 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await req.approve()
         context.bot_data.setdefault("approved", set()).add(user.id)
         await send_welcome(context, user)
-    except Exception as ex:
-        logging.error("Join request fail: %s", ex)
+    except Exception as e:
+        logging.error("Join request fail: %s", e)
 
 
 async def welcome_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -539,11 +532,11 @@ async def lock_group(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.set_chat_permissions(GROUP_ID, LOCKED)
         await context.bot.send_message(
             chat_id=GROUP_ID,
-            text=f"{e('lock')} <b>Group lock ho gaya hai so jao</b>\n\nSubah open hoga 06:00",
+            text=f"{LOCK} <b>Group lock ho gaya hai so jao</b>\n\nSubah open hoga 06:00",
             parse_mode=ParseMode.HTML,
         )
-    except Exception as ex:
-        logging.error("Lock fail: %s", ex)
+    except Exception as e:
+        logging.error("Lock fail: %s", e)
 
 
 async def unlock_group(context: ContextTypes.DEFAULT_TYPE):
@@ -551,11 +544,11 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.set_chat_permissions(GROUP_ID, UNLOCKED)
         await context.bot.send_message(
             chat_id=GROUP_ID,
-            text=f"{e('unlock')} <b>Group unlock ho gaya hai</b>",
+            text=f"{UNLOCK} <b>Group unlock ho gaya hai</b>",
             parse_mode=ParseMode.HTML,
         )
-    except Exception as ex:
-        logging.error("Unlock fail: %s", ex)
+    except Exception as e:
+        logging.error("Unlock fail: %s", e)
 
 
 def main():
@@ -582,5 +575,5 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
-if name == "main":
+if __name__ == "__main__":
     main()
