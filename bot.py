@@ -1,3 +1,4 @@
+
 import os
 import re
 import html
@@ -232,7 +233,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ---------- /add and /close (form par reply, sirf admin, sirf group) ----------
+# ---------- /add and /close (sirf admin, sirf group) ----------
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if update.effective_chat.id != GROUP_ID:
@@ -240,13 +241,8 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, context):
         await err(msg, "Sirf admin ye command use kar sakta hai.", "admin")
         return
-
-    form = msg.reply_to_message
-    if not form:
-        await err(msg, "Form par <b>reply</b> karke likho: <code>/add 400</code>")
-        return
     if not context.args:
-        await err(msg, "Amount bhi likho: <code>/add 400</code>")
+        await err(msg, "Amount likho: <code>/add 400</code>")
         return
     try:
         amount = float(context.args[0].replace(",", ""))
@@ -256,29 +252,31 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await err(msg, "Amount sahi number mein likho.")
         return
 
-    form_user = form.from_user
-    if form_user is None or form_user.is_bot:
-        await err(msg, "Ye form kisi member ka hona chahiye.")
-        return
+    form = msg.reply_to_message
+    form_user = None
+    form_msg_id = None
+    buyer = seller = "-"
+    if form:
+        form_msg_id = form.message_id
+        if form.from_user and not form.from_user.is_bot:
+            form_user = form.from_user
+        found = re.findall(r"@([A-Za-z0-9_]{4,32})", form.text or form.caption or "")
+        buyer = found[0].lower() if len(found) > 0 else "-"
+        seller = found[1].lower() if len(found) > 1 else "-"
 
-    # buyer/seller: /add ke baad likha ho to wo, warna form ke @username se
-    form_text = form.text or form.caption or ""
-    found = re.findall(r"@([A-Za-z0-9_]{4,32})", form_text)
-    args = context.args
-    buyer = args[1].lstrip("@").lower() if len(args) > 1 else (found[0].lower() if len(found) > 0 else "-")
-    seller = args[2].lstrip("@").lower() if len(args) > 2 else (found[1].lower() if len(found) > 1 else "-")
-
+    admin = update.effective_user
     with db() as con:
-        exists = con.execute(
-            "SELECT trade_id FROM deals WHERE group_id=? AND form_msg_id=? AND status='pending'",
-            (GROUP_ID, form.message_id),
-        ).fetchone()
-        if exists:
-            await err(msg, f"Is form ka deal pehle se add hai: <code>{exists[0]}</code>")
-            return
+        if form_msg_id:
+            exists = con.execute(
+                "SELECT trade_id FROM deals WHERE group_id=? AND form_msg_id=? AND status='pending'",
+
+(GROUP_ID, form_msg_id),
+            ).fetchone()
+            if exists:
+                await err(msg, f"Is form ka deal pehle se add hai: <code>{exists[0]}</code>")
+                return
 
         trade_id = "DL-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        admin = update.effective_user
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         con.execute(
             "INSERT INTO deals (trade_id, group_id, amount, buyer, seller, escrower_id, "
@@ -286,25 +284,27 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (trade_id, GROUP_ID, amount, buyer, seller, admin.id,
              admin.first_name or "Admin", "pending", now,
-             form.message_id, form_user.id, form_user.first_name or "User"),
+             form_msg_id,
+             form_user.id if form_user else None,
+             (form_user.first_name or "User") if form_user else None),
         )
 
     text = (
         f"{e('money_add')} <b>Deal Added</b>\n"
         f"{e('tag_id')} <b>Trade ID:</b> <code>{trade_id}</code>\n"
         f"{e('amount')} <b>Amount:</b> {inr(amount)}\n"
-        f"{e('form')} <b>Form:</b> {mention(form_user.id, form_user.first_name)}\n"
     )
+    if form_user:
+        text += f"{e('form')} <b>Form:</b> {mention(form_user.id, form_user.first_name)}\n"
     if buyer != "-":
         text += f"{e('buyer')} <b>Buyer:</b> {tag(buyer)}\n"
     if seller != "-":
         text += f"{e('seller')} <b>Seller:</b> {tag(seller)}\n"
     text += (
         f"{e('shield')} <b>Escrowed By:</b> {esc(admin.first_name or 'Admin')}\n"
-        f"\n{e('hint')} Close karne ke liye form par reply karke "
-        "<code>/close 360</code> jaisa likho (360 = release amount)."
+        f"\n{e('hint')} Close karne ke liye: <code>/close 360</code> (360 = release amount)"
     )
-    await form.reply_text(text, parse_mode=ParseMode.HTML)
+    await (form or msg).reply_text(text, parse_mode=ParseMode.HTML)
 
 
 async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -314,13 +314,8 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update, context):
         await err(msg, "Sirf admin ye command use kar sakta hai.", "admin")
         return
-
-    form = msg.reply_to_message
-    if not form:
-        await err(msg, "Form par <b>reply</b> karke likho: <code>/close 360</code>")
-        return
     if not context.args:
-        await err(msg, "Release amount bhi likho: <code>/close 360</code>")
+        await err(msg, "Release amount likho: <code>/close 360</code>")
         return
     try:
         released = float(context.args[0].replace(",", ""))
@@ -330,14 +325,23 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await err(msg, "Release amount sahi number mein likho.")
         return
 
+    form = msg.reply_to_message
+    cols = ("SELECT id, trade_id, amount, buyer, seller, escrower_name, "
+            "form_user_id, form_user_name FROM deals ")
     with db() as con:
-        row = con.execute(
-            "SELECT id, trade_id, amount, buyer, seller, escrower_name, form_user_id, form_user_name "
-            "FROM deals WHERE group_id=? AND status='pending' AND form_msg_id=?",
-            (GROUP_ID, form.message_id),
-        ).fetchone()
+        if form:
+            row = con.execute(
+                cols + "WHERE group_id=? AND status='pending' AND form_msg_id=?",
+                (GROUP_ID, form.message_id),
+            ).fetchone()
+        else:
+            row = con.execute(
+                cols + "WHERE group_id=? AND status='pending' AND escrower_id=? "
+                "ORDER BY id DESC LIMIT 1",
+                (GROUP_ID, update.effective_user.id),
+            ).fetchone()
         if not row:
-            await err(msg, "Is form ka koi pending deal nahi mila. Pehle /add karo.")
+            await err(msg, "Koi pending deal nahi mila. Pehle /add karo.")
             return
 
         deal_id, trade_id, amount, buyer, seller, escrower, fuid, fname = row
@@ -367,7 +371,7 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"{e('seller')} <b>Seller:</b> {tag(seller)}\n"
     text += f"{e('shield')} <b>Escrowed By:</b> {esc(escrower)}"
 
-    await form.reply_text(text, parse_mode=ParseMode.HTML)
+    await (form or msg).reply_text(text, parse_mode=ParseMode.HTML)
 
 
 # ---------- Screens (sirf GROUP_ID ka data) ----------
@@ -470,7 +474,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
     data = query.data
 
-    if data == "back":
+if data == "back":
         text = dashboard_text(user.first_name or "User")
         markup = dashboard_buttons()
     else:
@@ -582,5 +586,5 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
-if __name__ == "__main__":
+if name == "main":
     main()
