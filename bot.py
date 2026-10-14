@@ -20,13 +20,13 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-
+BOT_TOKEN = "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"   # apni token wali line yahan rakho
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 
-BOT_TOKEN = "YAHAN_APNA_TOKEN_DAALO"   # apni token wali line yahan rakho
+BOT_TOKEN = "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"   # apni token wali line yahan rakho
 GROUP_ID = -1004383728292
 DB_PATH = os.environ.get("DB_PATH", "bot.db")
 
