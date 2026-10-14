@@ -1,12 +1,20 @@
 import os
 import html
+import sqlite3
 import logging
 from datetime import time, timezone
 
-from telegram import Update, ChatPermissions
+from telegram import (
+    Update,
+    ChatPermissions,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
+    CommandHandler,
+    CallbackQueryHandler,
     MessageHandler,
     ChatJoinRequestHandler,
     filters,
@@ -18,8 +26,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-BOT_TOKEN = "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"   # apni token wali line yahan rakho
+BOT_TOKEN = "YAHAN_APNA_TOKEN_DAALO"   # apni token wali line yahan rakho
 GROUP_ID = -1004383728292
+DB_PATH = os.environ.get("DB_PATH", "bot.db")
 
 # IST 12:00 AM = 18:30 UTC (pichla din), IST 6:00 AM = 00:30 UTC
 LOCK_TIME = time(18, 30, tzinfo=timezone.utc)
@@ -65,8 +74,17 @@ UNLOCKED = ChatPermissions(
 )
 
 
+# ---------- Helpers ----------
 def esc(x):
     return html.escape(str(x))
+
+
+def inr(x):
+    return f"₹{x:,.2f}"
+
+
+def tag(x):
+    return "-" if x == "-" else f"@{esc(x)}"
 
 
 def user_tag(user):
@@ -75,6 +93,191 @@ def user_tag(user):
     return f'<a href="tg://user?id={user.id}">{esc(user.first_name or "User")}</a>'
 
 
+# ---------- Database ----------
+def db():
+    return sqlite3.connect(DB_PATH)
+
+
+def init_db():
+    with db() as con:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS deals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT,
+                group_id INTEGER,
+                amount REAL,
+                buyer TEXT,
+                seller TEXT,
+                escrower_id INTEGER,
+                escrower_name TEXT,
+                status TEXT,
+                created_at TEXT,
+                closed_at TEXT
+            )
+            """
+        )
+
+
+# ---------- /start dashboard ----------
+def dashboard_text(name):
+    return (
+        f"⭐️ <b>Welcome {esc(name)}!</b>\n"
+        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+        "❤️ <b>Escrow Bot for @rizzlerxescrow</b>\n"
+        "💬 <b>Provided by @rizzlerxescrow</b>\n"
+        "\n"
+        "🍑 <b>This is Your Personal Dashboard:</b>\n"
+        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+        "Select the option below ⚡️"
+    )
+
+
+def dashboard_buttons():
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 Total Deal", callback_data="total_deal")],
+            [InlineKeyboardButton("📁 My Deal Info", callback_data="my_deal")],
+            [InlineKeyboardButton("🏆 Global Ranking", callback_data="ranking")],
+        ]
+    )
+
+
+def back_button():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back")]])
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("Dashboard ke liye bot ke private chat mein /start karo.")
+        return
+    name = update.effective_user.first_name or "User"
+    await update.message.reply_text(
+        dashboard_text(name),
+        parse_mode=ParseMode.HTML,
+        reply_markup=dashboard_buttons(),
+    )
+
+
+# ---------- Screens (sirf GROUP_ID ka data) ----------
+def screen_total():
+    with db() as con:
+        total = con.execute(
+            "SELECT COUNT(*) FROM deals WHERE group_id=?", (GROUP_ID,)
+        ).fetchone()[0]
+        done = con.execute(
+            "SELECT COUNT(*), COALESCE(SUM(amount),0), COALESCE(MAX(amount),0) "
+            "FROM deals WHERE group_id=? AND status='completed'",
+            (GROUP_ID,),
+        ).fetchone()
+        pend = con.execute(
+            "SELECT COUNT(*), COALESCE(SUM(amount),0) FROM deals "
+            "WHERE group_id=? AND status='pending'",
+            (GROUP_ID,),
+        ).fetchone()
+    return (
+        "📊 <b>Total Deal</b>\n"
+        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+        f"📦 Total Deals: <b>{total}</b>\n"
+        f"✅ Completed: <b>{done[0]}</b>\n"
+        f"💰 Total Amount: <b>{inr(done[1])}</b>\n"
+        f"🔝 Biggest Deal: <b>{inr(done[2])}</b>\n"
+        f"⏳ Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
+    )
+
+
+def deal_line(t, a, b, s, status, when):
+    icon = "✅" if status == "completed" else "⏳"
+    people = ""
+    if b != "-" or s != "-":
+        people = f"\n   {tag(b)} ➜ {tag(s)}"
+    return f"{icon} <code>{t}</code> | {inr(a)}{people}\n   🕒 {esc(when)}"
+
+
+def screen_my_deal(user):
+    uname = (user.username or "").lower()
+    uid = user.id
+    where = "group_id=? AND (buyer=? OR seller=? OR escrower_id=?)"
+    params = (GROUP_ID, uname, uname, uid)
+    with db() as con:
+        total = con.execute(f"SELECT COUNT(*) FROM deals WHERE {where}", params).fetchone()[0]
+        done = con.execute(
+            f"SELECT COUNT(*), COALESCE(SUM(amount),0) FROM deals WHERE {where} AND status='completed'",
+            params,
+        ).fetchone()
+        pend = con.execute(
+            f"SELECT COUNT(*), COALESCE(SUM(amount),0) FROM deals WHERE {where} AND status='pending'",
+            params,
+        ).fetchone()
+        rows = con.execute(
+            "SELECT trade_id, amount, buyer, seller, status, COALESCE(closed_at, created_at) "
+            f"FROM deals WHERE {where} ORDER BY id DESC LIMIT 10",
+            params,
+        ).fetchall()
+
+    head = (
+        "📁 <b>My Deal Info</b>\n"
+        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
+        f"📦 Total: <b>{total}</b>\n"
+        f"✅ Completed: <b>{done[0]}</b> ({inr(done[1])})\n"
+        f"⏳ Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
+    )
+    if not uname:
+        head += "\n\n⚠️ Aapka Telegram username set nahi hai, isliye buyer/seller deals match nahi hongi."
+    if not rows:
+        return head + "\n\nAbhi koi deal nahi hai."
+
+    lines = [head, "\n<b>Last 10 Deals:</b>"]
+    for t, a, b, s, st, w in rows:
+        lines.append(deal_line(t, a, b, s, st, w))
+    return "\n".join(lines)
+
+
+def screen_ranking():
+    with db() as con:
+        rows = con.execute(
+            "SELECT MAX(escrower_name), COUNT(*), SUM(amount) FROM deals "
+            "WHERE group_id=? AND status='completed' "
+            "GROUP BY escrower_id ORDER BY COUNT(*) DESC, SUM(amount) DESC LIMIT 10",
+            (GROUP_ID,),
+        ).fetchall()
+    if not rows:
+        return "🏆 <b>Global Ranking</b>\n\nAbhi koi completed deal nahi hai."
+
+    medals = ["🥇", "🥈", "🥉"]
+    lines = ["🏆 <b>Global Ranking</b> (Top Escrowers)", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
+    for i, (name, cnt, amt) in enumerate(rows):
+        rank = medals[i] if i < 3 else f"{i + 1}."
+        lines.append(f"{rank} <b>{esc(name)}</b> — {cnt} deals | {inr(amt)}")
+    return "\n".join(lines)
+
+
+async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    data = query.data
+
+    if data == "back":
+        text = dashboard_text(user.first_name or "User")
+        markup = dashboard_buttons()
+    else:
+        screens = {
+            "total_deal": screen_total,
+            "my_deal": lambda: screen_my_deal(user),
+            "ranking": screen_ranking,
+        }
+        fn = screens.get(data)
+        text = fn() if fn else "Unknown option"
+        markup = back_button()
+
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    except Exception as e:
+        logging.warning("edit failed: %s", e)
+
+
+# ---------- Welcome ----------
 def welcome_text(user):
     return (
         f'<tg-emoji emoji-id="{E_JOIN}">✅</tg-emoji> <b>JOIN REQUEST ACCEPT</b>\n\n'
@@ -91,7 +294,6 @@ async def send_welcome(context: ContextTypes.DEFAULT_TYPE, user):
     )
 
 
-# ---------- 1a) Join request aaye to accept + welcome ----------
 async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     req = update.chat_join_request
     if req.chat.id != GROUP_ID:
@@ -105,7 +307,6 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error("Join request fail: %s", e)
 
 
-# ---------- 1b) Seedha join karne wale ka welcome ----------
 async def welcome_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != GROUP_ID:
         return
@@ -114,14 +315,13 @@ async def welcome_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         if member.is_bot:
             continue
-        # join request se aaya hai to welcome pehle hi ja chuka hai
         if member.id in approved:
             approved.discard(member.id)
             continue
         await send_welcome(context, member)
 
 
-# ---------- 2) Raat 12 baje lock, subah 6 baje unlock ----------
+# ---------- Raat 12 baje lock, subah 6 baje unlock ----------
 async def lock_group(context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.set_chat_permissions(GROUP_ID, LOCKED)
@@ -147,6 +347,7 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
     if app.job_queue is None:
@@ -155,6 +356,8 @@ def main():
             "python-telegram-bot[job-queue]==21.6 likho aur redeploy karo."
         )
 
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(ChatJoinRequestHandler(on_join_request))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new))
 
