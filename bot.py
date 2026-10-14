@@ -1,8 +1,11 @@
 import os
+import re
 import html
+import random
+import string
 import sqlite3
 import logging
-from datetime import time, timezone
+from datetime import datetime, time, timezone
 
 from telegram import (
     Update,
@@ -20,13 +23,17 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-BOT_TOKEN = "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"   # apni token wali line yahan rakho
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 
-BOT_TOKEN = "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"   # apni token wali line yahan rakho
+BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8888295842:AAHrWtTQ2weQ5LoM0QF_Y2nfbYAtFSd3XI4"
+
+if "YAHAN_APNA_TOKEN" in BOT_TOKEN or ":" not in BOT_TOKEN:
+    raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
+
 GROUP_ID = -1004383728292
 DB_PATH = os.environ.get("DB_PATH", "bot.db")
 
@@ -34,10 +41,41 @@ DB_PATH = os.environ.get("DB_PATH", "bot.db")
 LOCK_TIME = time(18, 30, tzinfo=timezone.utc)
 UNLOCK_TIME = time(0, 30, tzinfo=timezone.utc)
 
-# Premium emoji IDs
+
+# ---------- Premium emojis ----------
+def ce(eid, fallback):
+    return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
+
+
+# Welcome
 E_JOIN = "5197474765387864959"
 E_WELCOME = "5316727448644103237"
 E_TRUSTED = "5821077289185578407"
+
+STAR = ce("5958376256788502078", "⭐️")
+CHAT = ce("5891243564309942507", "💬")
+BOLT = ce("5843553939672274145", "⚡️")
+SIGN = ce("5994636050033545139", "🪧")
+BAG = ce("5811989245761426317", "💰")
+GEM = ce("5771755323572359189", "💎")
+BIG = ce("5778546023349621090", "💎")
+TAGI = ce("5985433648810171091", "🏷")
+CARD = ce("5936017305585586269", "🪪")
+USER = ce("5879770735999717115", "👤")
+BUYER = ce("5877530150345641603", "👤")
+SELLER = ce("5954175920506933873", "👤")
+SHIELD = ce("5926783847453692661", "🛡")
+DONE = ce("5920052658743283381", "✅")
+REL = ce("5951665890079544884", "✅")
+FEE = ce("5967548335542767952", "💳")
+CAL = ce("5967382867632722656", "📅")
+CHART = ce("5913702317667913862", "📊")
+FILE = ce("5956561916573782596", "📄")
+TREND = ce("5994378914636500516", "📈")
+PIN = ce("5796440171364749940", "📌")
+WARN = ce("5881702736843511327", "⚠️")
+LOCK = ce("5879895758202735862", "🔒")
+UNLOCK = ce("6034962180875490251", "🔓")
 
 LOCKED = ChatPermissions(
     can_send_messages=False,
@@ -93,6 +131,21 @@ def user_tag(user):
     return f'<a href="tg://user?id={user.id}">{esc(user.first_name or "User")}</a>'
 
 
+def mention(uid, name):
+    return f'<a href="tg://user?id={uid}">{esc(name or "User")}</a>'
+
+
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    member = await context.bot.get_chat_member(
+        update.effective_chat.id, update.effective_user.id
+    )
+    return member.status in ("administrator", "creator")
+
+
+async def reply_html(message, text):
+    return await message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
 # ---------- Database ----------
 def db():
     return sqlite3.connect(DB_PATH)
@@ -117,19 +170,29 @@ def init_db():
             )
             """
         )
+        for col, typ in (
+            ("form_msg_id", "INTEGER"),
+            ("form_user_id", "INTEGER"),
+            ("form_user_name", "TEXT"),
+            ("released", "REAL"),
+        ):
+            try:
+                con.execute(f"ALTER TABLE deals ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError:
+                pass
 
 
 # ---------- /start dashboard ----------
 def dashboard_text(name):
     return (
-        f"⭐️ <b>Welcome {esc(name)}!</b>\n"
+        f"{STAR} <b>Welcome {esc(name)}!</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        "❤️ <b>Escrow Bot for @rizzlerxescrow</b>\n"
-        "💬 <b>Provided by @rizzlerxescrow</b>\n"
+        f"{SHIELD} <b>Escrow Bot for @rizzlerxescrow</b>\n"
+        f"{CHAT} <b>Provided by @rizzlerxescrow</b>\n"
         "\n"
-        "🍑 <b>This is Your Personal Dashboard:</b>\n"
+        f"{SIGN} <b>This is Your Personal Dashboard:</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        "Select the option below ⚡️"
+        f"Select the option below {BOLT}"
     )
 
 
@@ -159,6 +222,147 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ---------- /add and /close (form par reply, sirf admin, sirf group) ----------
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if update.effective_chat.id != GROUP_ID:
+        return
+    if not await is_admin(update, context):
+        await reply_html(msg, f"{WARN} Sirf admin ye command use kar sakta hai.")
+        return
+
+    form = msg.reply_to_message
+    if not form:
+        await reply_html(msg, f"{WARN} Form par <b>reply</b> karke likho: <code>/add 400</code>")
+        return
+    if not context.args:
+        await reply_html(msg, f"{WARN} Amount bhi likho: <code>/add 400</code>")
+        return
+    try:
+        amount = float(context.args[0].replace(",", ""))
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await reply_html(msg, f"{WARN} Amount sahi number mein likho.")
+        return
+
+    form_user = form.from_user
+    if form_user is None or form_user.is_bot:
+        await reply_html(msg, f"{WARN} Ye form kisi member ka hona chahiye.")
+        return
+
+    form_text = form.text or form.caption or ""
+    found = re.findall(r"@([A-Za-z0-9_]{4,32})", form_text)
+    args = context.args
+    buyer = args[1].lstrip("@").lower() if len(args) > 1 else (found[0].lower() if len(found) > 0 else "-")
+    seller = args[2].lstrip("@").lower() if len(args) > 2 else (found[1].lower() if len(found) > 1 else "-")
+
+    with db() as con:
+        exists = con.execute(
+            "SELECT trade_id FROM deals WHERE group_id=? AND form_msg_id=? AND status='pending'",
+            (GROUP_ID, form.message_id),
+        ).fetchone()
+        if exists:
+            await reply_html(
+                msg, f"{WARN} Is form ka deal pehle se add hai: <code>{exists[0]}</code>"
+            )
+            return
+
+        trade_id = "DL-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        admin = update.effective_user
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        con.execute(
+            "INSERT INTO deals (trade_id, group_id, amount, buyer, seller, escrower_id, "
+            "escrower_name, status, created_at, form_msg_id, form_user_id, form_user_name) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (trade_id, GROUP_ID, amount, buyer, seller, admin.id,
+             admin.first_name or "Admin", "pending", now,
+             form.message_id, form_user.id, form_user.first_name or "User"),
+        )
+
+    text = (
+        f"{BAG} <b>Deal Added</b>\n"
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>\n"
+        f"{GEM} <b>Amount:</b> {inr(amount)}\n"
+        f"{USER} <b>Form:</b> {mention(form_user.id, form_user.first_name)}\n"
+    )
+    if buyer != "-":
+        text += f"{BUYER} <b>Buyer:</b> {tag(buyer)}\n"
+    if seller != "-":
+        text += f"{SELLER} <b>Seller:</b> {tag(seller)}\n"
+    text += (
+        f"{SHIELD} <b>Escrowed By:</b> {esc(admin.first_name or 'Admin')}\n"
+        "\nClose karne ke liye form par reply karke <code>/close 360</code> jaisa likho "
+        "(360 = release amount)."
+    )
+    await reply_html(form, text)
+
+
+async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if update.effective_chat.id != GROUP_ID:
+        return
+    if not await is_admin(update, context):
+        await reply_html(msg, f"{WARN} Sirf admin ye command use kar sakta hai.")
+        return
+
+    form = msg.reply_to_message
+    if not form:
+        await reply_html(msg, f"{WARN} Form par <b>reply</b> karke likho: <code>/close 360</code>")
+        return
+    if not context.args:
+        await reply_html(msg, f"{WARN} Release amount bhi likho: <code>/close 360</code>")
+        return
+    try:
+        released = float(context.args[0].replace(",", ""))
+        if released <= 0:
+            raise ValueError
+    except ValueError:
+        await reply_html(msg, f"{WARN} Release amount sahi number mein likho.")
+        return
+
+    with db() as con:
+        row = con.execute(
+            "SELECT id, trade_id, amount, buyer, seller, escrower_name, form_user_id, form_user_name "
+            "FROM deals WHERE group_id=? AND status='pending' AND form_msg_id=?",
+            (GROUP_ID, form.message_id),
+        ).fetchone()
+        if not row:
+            await reply_html(msg, f"{WARN} Is form ka koi pending deal nahi mila. Pehle /add karo.")
+            return
+
+        deal_id, trade_id, amount, buyer, seller, escrower, fuid, fname = row
+        if released > amount:
+            await reply_html(
+                msg, f"{WARN} Release amount deal amount ({inr(amount)}) se zyada nahi ho sakta."
+            )
+            return
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        con.execute(
+            "UPDATE deals SET status='completed', closed_at=?, released=? WHERE id=?",
+            (now, released, deal_id),
+        )
+
+    fee = amount - released
+    text = (
+        f"{DONE} <b>Deal Completed</b>\n"
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>\n"
+        f"{GEM} <b>Amount:</b> {inr(amount)}\n"
+        f"{FEE} <b>Fee:</b> {inr(fee)}\n"
+        f"{REL} <b>Released:</b> {inr(released)}\n"
+    )
+    if fuid:
+        text += f"{USER} <b>Form:</b> {mention(fuid, fname)}\n"
+    if buyer != "-":
+        text += f"{BUYER} <b>Buyer:</b> {tag(buyer)}\n"
+    if seller != "-":
+        text += f"{SELLER} <b>Seller:</b> {tag(seller)}\n"
+    text += f"{SHIELD} <b>Escrowed By:</b> {esc(escrower)}"
+
+    await reply_html(form, text)
+
+
 # ---------- Screens (sirf GROUP_ID ka data) ----------
 def screen_total():
     with db() as con:
@@ -166,7 +370,8 @@ def screen_total():
             "SELECT COUNT(*) FROM deals WHERE group_id=?", (GROUP_ID,)
         ).fetchone()[0]
         done = con.execute(
-            "SELECT COUNT(*), COALESCE(SUM(amount),0), COALESCE(MAX(amount),0) "
+            "SELECT COUNT(*), COALESCE(SUM(amount),0), COALESCE(MAX(amount),0), "
+            "COALESCE(SUM(COALESCE(released, amount)),0) "
             "FROM deals WHERE group_id=? AND status='completed'",
             (GROUP_ID,),
         ).fetchone()
@@ -176,29 +381,31 @@ def screen_total():
             (GROUP_ID,),
         ).fetchone()
     return (
-        "📊 <b>Total Deal</b>\n"
+        f"{CHART} <b>Total Deal</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"📦 Total Deals: <b>{total}</b>\n"
-        f"✅ Completed: <b>{done[0]}</b>\n"
-        f"💰 Total Amount: <b>{inr(done[1])}</b>\n"
-        f"🔝 Biggest Deal: <b>{inr(done[2])}</b>\n"
-        f"⏳ Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
+        f"{CARD} Total Deals: <b>{total}</b>\n"
+        f"{DONE} Completed: <b>{done[0]}</b>\n"
+        f"{BAG} Total Amount: <b>{inr(done[1])}</b>\n"
+        f"{FEE} Total Fee: <b>{inr(done[1] - done[3])}</b>\n"
+        f"{BIG} Biggest Deal: <b>{inr(done[2])}</b>\n"
+        f"{PIN} Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
     )
 
 
-def deal_line(t, a, b, s, status, when):
-    icon = "✅" if status == "completed" else "⏳"
+def deal_line(t, a, r, b, s, status, when):
+    icon = DONE if status == "completed" else PIN
+    amt = inr(a) if r is None else f"{inr(a)} ➜ {inr(r)}"
     people = ""
     if b != "-" or s != "-":
         people = f"\n   {tag(b)} ➜ {tag(s)}"
-    return f"{icon} <code>{t}</code> | {inr(a)}{people}\n   🕒 {esc(when)}"
+    return f"{icon} <code>{t}</code> | {amt}{people}\n   {CAL} {esc(when)}"
 
 
 def screen_my_deal(user):
     uname = (user.username or "").lower()
     uid = user.id
-    where = "group_id=? AND (buyer=? OR seller=? OR escrower_id=?)"
-    params = (GROUP_ID, uname, uname, uid)
+    where = "group_id=? AND (buyer=? OR seller=? OR escrower_id=? OR form_user_id=?)"
+    params = (GROUP_ID, uname, uname, uid, uid)
     with db() as con:
         total = con.execute(f"SELECT COUNT(*) FROM deals WHERE {where}", params).fetchone()[0]
         done = con.execute(
@@ -210,26 +417,24 @@ def screen_my_deal(user):
             params,
         ).fetchone()
         rows = con.execute(
-            "SELECT trade_id, amount, buyer, seller, status, COALESCE(closed_at, created_at) "
+            "SELECT trade_id, amount, released, buyer, seller, status, COALESCE(closed_at, created_at) "
             f"FROM deals WHERE {where} ORDER BY id DESC LIMIT 10",
             params,
         ).fetchall()
 
     head = (
-        "📁 <b>My Deal Info</b>\n"
+        f"{FILE} <b>My Deal Info</b>\n"
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"📦 Total: <b>{total}</b>\n"
-        f"✅ Completed: <b>{done[0]}</b> ({inr(done[1])})\n"
-        f"⏳ Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
+        f"{CARD} Total: <b>{total}</b>\n"
+        f"{DONE} Completed: <b>{done[0]}</b> ({inr(done[1])})\n"
+        f"{PIN} Pending: <b>{pend[0]}</b> ({inr(pend[1])})"
     )
-    if not uname:
-        head += "\n\n⚠️ Aapka Telegram username set nahi hai, isliye buyer/seller deals match nahi hongi."
     if not rows:
         return head + "\n\nAbhi koi deal nahi hai."
 
     lines = [head, "\n<b>Last 10 Deals:</b>"]
-    for t, a, b, s, st, w in rows:
-        lines.append(deal_line(t, a, b, s, st, w))
+    for t, a, r, b, s, st, w in rows:
+        lines.append(deal_line(t, a, r, b, s, st, w))
     return "\n".join(lines)
 
 
@@ -242,10 +447,10 @@ def screen_ranking():
             (GROUP_ID,),
         ).fetchall()
     if not rows:
-        return "🏆 <b>Global Ranking</b>\n\nAbhi koi completed deal nahi hai."
+        return f"{TREND} <b>Global Ranking</b>\n\nAbhi koi completed deal nahi hai."
 
     medals = ["🥇", "🥈", "🥉"]
-    lines = ["🏆 <b>Global Ranking</b> (Top Escrowers)", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
+    lines = [f"{TREND} <b>Global Ranking</b> (Top Escrowers)", "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"]
     for i, (name, cnt, amt) in enumerate(rows):
         rank = medals[i] if i < 3 else f"{i + 1}."
         lines.append(f"{rank} <b>{esc(name)}</b> — {cnt} deals | {inr(amt)}")
@@ -327,7 +532,7 @@ async def lock_group(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.set_chat_permissions(GROUP_ID, LOCKED)
         await context.bot.send_message(
             chat_id=GROUP_ID,
-            text="<b>Group lock ho gaya hai so jao</b>\n\nSubah open hoga 06:00",
+            text=f"{LOCK} <b>Group lock ho gaya hai so jao</b>\n\nSubah open hoga 06:00",
             parse_mode=ParseMode.HTML,
         )
     except Exception as e:
@@ -339,7 +544,7 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.set_chat_permissions(GROUP_ID, UNLOCKED)
         await context.bot.send_message(
             chat_id=GROUP_ID,
-            text="<b>Group unlock ho gaya hai</b>",
+            text=f"{UNLOCK} <b>Group unlock ho gaya hai</b>",
             parse_mode=ParseMode.HTML,
         )
     except Exception as e:
@@ -357,6 +562,8 @@ def main():
         )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("add", add))
+    app.add_handler(CommandHandler("close", close))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(ChatJoinRequestHandler(on_join_request))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new))
