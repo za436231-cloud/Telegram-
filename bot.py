@@ -1,3 +1,4 @@
+
 import os
 import re
 import html
@@ -7,7 +8,8 @@ import sqlite3
 import logging
 import unicodedata
 import time as tm
-from datetime import datetime, time, timezone
+from contextlib import closing
+from datetime import datetime, time, timedelta, timezone
 
 from telegram import (
     Update,
@@ -31,20 +33,24 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+# =====================================================================
+# SETTINGS (sirf yahi hissa badalna hai)
+# =====================================================================
+# Token Railway Variables mein BOT_TOKEN naam se daalo,
+# ya neeche "YAHAN_APNA_TOKEN_DAALO" ki jagah poora token likho.
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAGHHelHWS0ZV7s9IMrMyGJ8EXzTMAyth1o"
 
-if "YAHAN_APNA_TOKEN" in BOT_TOKEN or ":" not in BOT_TOKEN:
-    raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
-
-# Group ka ID. Test group mein chalana ho to us group mein /chatid likhkar ID yahan daalo.
-GROUP_ID = -1004383728292
-DB_PATH = os.environ.get("DB_PATH", "bot.db")
+# Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
+# jaise [-1004383728292, -100123456789]. ID /chatid se milta hai.
+GROUP_IDS = [-1004383728292]
 
 # Sirf in IDs wale log /add aur /close chala sakte hain.
-# Aur admin jodna ho to comma lagakar naya ID likho, jaise [7054168366, 123456789]
 ADMIN_IDS = [7054168366]
 
-# Spam rule: itne second ke andar ek hi message itni baar bheja to warning
+# Database file. Railway Volume lagaya ho to DB_PATH=/data/bot.db rakho.
+DB_PATH = os.environ.get("DB_PATH", "bot.db")
+
+# Spam: itne second mein ek hi message itni baar bheja to warning
 SPAM_COUNT = 5
 SPAM_SECONDS = 60
 
@@ -54,17 +60,22 @@ FEE_WAIT_SECONDS = 300
 # Bhara hua form aane par bot ye likhega
 FORM_OK_TEXT = "Maal aa gaya"
 
-# IST 12:00 AM = 18:30 UTC (pichla din), IST 6:00 AM = 00:30 UTC
+# Lock/unlock time (UTC mein): 18:30 UTC = 12:00 AM IST
+# aur 00:30 UTC = 6:00 AM IST
 LOCK_TIME = time(18, 30, tzinfo=timezone.utc)
 UNLOCK_TIME = time(0, 30, tzinfo=timezone.utc)
 
+IST = timezone(timedelta(hours=5, minutes=30))
 
-# ---------- Premium emojis ----------
+# =====================================================================
+# PREMIUM EMOJIS
+# =====================================================================
+
+
 def ce(eid, fallback):
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 
-# Welcome
 E_JOIN = "5197474765387864959"
 E_WELCOME = "5316727448644103237"
 E_TRUSTED = "5821077289185578407"
@@ -94,6 +105,11 @@ WARN = ce("5881702736843511327", "⚠️")
 LOCK = ce("5879895758202735862", "🔒")
 UNLOCK = ce("6034962180875490251", "🔓")
 
+DIVIDER = "╍╍╍╍╍╍╍╍╍╍╍╍╍╍"
+
+# =====================================================================
+# LOCK / UNLOCK PERMISSIONS
+# =====================================================================
 LOCKED = ChatPermissions(
     can_send_messages=False,
     can_send_audios=False,
@@ -128,8 +144,11 @@ UNLOCKED = ChatPermissions(
     can_manage_topics=False,
 )
 
+# =====================================================================
+# HELPERS
+# =====================================================================
 
-# ---------- Helpers ----------
+
 def esc(x):
     return html.escape(str(x))
 
@@ -146,267 +165,142 @@ def tag(x):
     return "-" if x == "-" else f"@{esc(x)}"
 
 
-def user_tag(user):
-    if user.username:
-        return f"@{esc(user.username)}"
-    return f'<a href="tg://user?id={user.id}">{esc(user.first_name or "User")}</a>'
-
-
 def mention(uid, name):
     return f'<a href="tg://user?id={uid}">{esc(name or "User")}</a>'
 
 
-async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Sirf ADMIN_IDS wale log hi /add aur /close chala sakte hain
-    return update.effective_user.id in ADMIN_IDS
+def user_tag(user):
+    if user.username:
+        return f"@{esc(user.username)}"
+    return mention(user.id, user.first_name)
+
+
+def now_text():
+    return datetime.now(IST).strftime("%Y-%m-%d %H:%M")
+
+
+def is_admin(update):
+    user = update.effective_user
+    return user is not None and user.id in ADMIN_IDS
+
+
+def in_group(update):
+    chat = update.effective_chat
+    return chat is not None and chat.id in GROUP_IDS
 
 
 async def reply_html(message, text):
     return await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
-# ---------- Database ----------
-def db():
-    return sqlite3.connect(DB_PATH)
+async def reply_to_form(form, fallback, text):
+    """Form par reply karo; na ho paye to command par reply karo."""
+    try:
+        return await reply_html(form, text)
+    except Exception as e:
+        logging.warning("form reply failed: %s", e)
+        return await reply_html(fallback, text)
+
+
+async def is_group_admin(context, chat_id, user_id):
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        return member.status in ("administrator", "creator")
+    except Exception:
+        return False
+
+
+# =====================================================================
+# DATABASE
+# =====================================================================
+G_SQL = "group_id IN (" + ",".join("?" for _ in GROUP_IDS) + ")"
+G_ARGS = tuple(GROUP_IDS)
+
+
+def _run(sql, params, mode):
+    with closing(sqlite3.connect(DB_PATH)) as con:
+        cur = con.execute(sql, params)
+        if mode == "one":
+            result = cur.fetchone()
+        elif mode == "all":
+            result = cur.fetchall()
+        else:
+            result = None
+        con.commit()
+        return result
+
+
+def db_one(sql, params=()):
+    return _run(sql, params, "one")
+
+
+def db_all(sql, params=()):
+    return _run(sql, params, "all")
+
+
+def db_exec(sql, params=()):
+    return _run(sql, params, None)
 
 
 def init_db():
-    with db() as con:
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS deals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trade_id TEXT,
-                group_id INTEGER,
-                amount REAL,
-                buyer TEXT,
-                seller TEXT,
-                escrower_id INTEGER,
-                escrower_name TEXT,
-                status TEXT,
-                created_at TEXT,
-                closed_at TEXT
-            )
-            """
-        )
-        for col, typ in (
-            ("form_msg_id", "INTEGER"),
-            ("form_user_id", "INTEGER"),
-            ("form_user_name", "TEXT"),
-            ("released", "REAL"),
-        ):
-            try:
-                con.execute(f"ALTER TABLE deals ADD COLUMN {col} {typ}")
-            except sqlite3.OperationalError:
-                pass
-
-
-# ---------- /start dashboard ----------
-def dashboard_text(name):
-    return (
-        f"{STAR} <b>Welcome {esc(name)}!</b>\n"
-        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"{SHIELD} <b>Escrow Bot for @rizzlerxescrow</b>\n"
-        f"{CHAT} <b>Provided by @rizzlerxescrow</b>\n"
-        "\n"
-        f"{SIGN} <b>This is Your Personal Dashboard:</b>\n"
-        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"Select the option below {BOLT}"
+    db_exec(
+        "CREATE TABLE IF NOT EXISTS deals ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "trade_id TEXT, group_id INTEGER, amount REAL, "
+        "buyer TEXT, seller TEXT, escrower_id INTEGER, "
+        "escrower_name TEXT, status TEXT, "
+        "created_at TEXT, closed_at TEXT)"
     )
-
-
-def dashboard_buttons():
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("📊 Total Deal", callback_data="total_deal")],
-            [InlineKeyboardButton("📁 My Deal Info", callback_data="my_deal")],
-            [InlineKeyboardButton("🏆 Global Ranking", callback_data="ranking")],
-        ]
+    extra = (
+        ("form_msg_id", "INTEGER"),
+        ("form_user_id", "INTEGER"),
+        ("form_user_name", "TEXT"),
+        ("released", "REAL"),
     )
+    for col, typ in extra:
+        try:
+            db_exec(f"ALTER TABLE deals ADD COLUMN {col} {typ}")
+        except sqlite3.OperationalError:
+            pass
 
 
-def back_button():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back")]])
+def new_trade_id():
+    while True:
+        chars = string.ascii_uppercase + string.digits
+        code = "DL-" + "".join(random.choices(chars, k=6))
+        if not db_one("SELECT 1 FROM deals WHERE trade_id=?", (code,)):
+            return code
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private":
-        await update.message.reply_text("Dashboard ke liye bot ke private chat mein /start karo.")
-        return
-    name = update.effective_user.first_name or "User"
-    await update.message.reply_text(
-        dashboard_text(name),
-        parse_mode=ParseMode.HTML,
-        reply_markup=dashboard_buttons(),
-    )
+# =====================================================================
+# PARSING (amount, form)
+# =====================================================================
+NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
-async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await reply_html(
-        update.message,
-        f"{CARD} <b>Your ID:</b> <code>{update.effective_user.id}</code>",
-    )
+def parse_amount(text):
+    """Poora text sirf ek number ho to wahi number, warna None."""
+    cleaned = (text or "").lower()
+    cleaned = re.sub(r"rs\.?|inr|₹|,|\s", "", cleaned)
+    if not re.fullmatch(r"\d+(?:\.\d+)?", cleaned):
+        return None
+    value = float(cleaned)
+    return value if 0 < value < 1e9 else None
 
 
-async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await reply_html(
-        update.message,
-        f"{CARD} <b>Chat ID:</b> <code>{update.effective_chat.id}</code>",
-    )
+def find_amount(text):
+    """Text mein se pehla number nikalo (form ke amount ke liye)."""
+    match = NUM_RE.search(text or "")
+    if not match:
+        return None
+    value = float(match.group(0).replace(",", ""))
+    return value if 0 < value < 1e9 else None
 
 
-# ---------- /add and /close (form par reply, sirf ADMIN_IDS, sirf group) ----------
-async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if update.effective_chat.id != GROUP_ID:
-        return
-    if not await is_admin(update, context):
-        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
-        return
+def username_in(text):
+    match = re.search(r"@([A-Za-z0-9_]{4,32})", text or "")
+    return match.group(1).lower() if match else None
 
-    form = msg.reply_to_message
-    if not form:
-        await reply_html(msg, f"{WARN} Form par <b>reply</b> karke likho: <code>/add 400</code>")
-        return
-    if not context.args:
-        await reply_html(msg, f"{WARN} Amount bhi likho: <code>/add 400</code>")
-        return
-    try:
-        amount = float(context.args[0].replace(",", ""))
-        if amount <= 0:
-            raise ValueError
-    except ValueError:
-        await reply_html(msg, f"{WARN} Amount sahi number mein likho.")
-        return
-
-    form_user = form.from_user
-    if form_user is None or form_user.is_bot:
-        await reply_html(msg, f"{WARN} Ye form kisi member ka hona chahiye.")
-        return
-
-    form_text = form.text or form.caption or ""
-    found = re.findall(r"@([A-Za-z0-9_]{4,32})", form_text)
-    args = context.args
-    buyer = args[1].lstrip("@").lower() if len(args) > 1 else (found[0].lower() if len(found) > 0 else "-")
-    seller = args[2].lstrip("@").lower() if len(args) > 2 else (found[1].lower() if len(found) > 1 else "-")
-
-    with db() as con:
-        exists = con.execute(
-            "SELECT trade_id FROM deals WHERE group_id=? AND form_msg_id=? AND status='pending'",
-            (GROUP_ID, form.message_id),
-        ).fetchone()
-        if exists:
-            await reply_html(
-                msg, f"{WARN} Is form ka deal pehle se add hai: <code>{exists[0]}</code>"
-            )
-            return
-
-        trade_id = "DL-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        admin = update.effective_user
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        con.execute(
-            "INSERT INTO deals (trade_id, group_id, amount, buyer, seller, escrower_id, "
-            "escrower_name, status, created_at, form_msg_id, form_user_id, form_user_name) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (trade_id, GROUP_ID, amount, buyer, seller, admin.id,
-             admin.first_name or "Admin", "pending", now,
-             form.message_id, form_user.id, form_user.first_name or "User"),
-        )
-
-    text = (
-        f"{BAG} <b>Deal Added</b>\n"
-        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>\n"
-        f"{GEM} <b>Amount:</b> {inr(amount)}\n"
-        f"{USER} <b>Form:</b> {mention(form_user.id, form_user.first_name)}\n"
-    )
-    if buyer != "-":
-        text += f"{BUYER} <b>Buyer:</b> {tag(buyer)}\n"
-    if seller != "-":
-        text += f"{SELLER} <b>Seller:</b> {tag(seller)}\n"
-    text += (
-        f"{SHIELD} <b>Escrowed By:</b> {esc(admin.first_name or 'Admin')}\n"
-        "\nClose karne ke liye form par reply karke <code>/close 360</code> jaisa likho "
-        "(360 = release amount)."
-    )
-    await reply_html(form, text)
-
-
-async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if update.effective_chat.id != GROUP_ID:
-        return
-    if not await is_admin(update, context):
-        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
-        return
-
-    form = msg.reply_to_message
-    if not form:
-        await reply_html(msg, f"{WARN} Form par <b>reply</b> karke likho: <code>/close 360</code>")
-        return
-    if not context.args:
-        await reply_html(msg, f"{WARN} Release amount bhi likho: <code>/close 360</code>")
-        return
-    try:
-        released = float(context.args[0].replace(",", ""))
-        if released <= 0:
-            raise ValueError
-    except ValueError:
-        await reply_html(msg, f"{WARN} Release amount sahi number mein likho.")
-        return
-
-    with db() as con:
-        row = con.execute(
-            "SELECT id, trade_id, amount, buyer, seller, escrower_name, form_user_id, form_user_name "
-            "FROM deals WHERE group_id=? AND status='pending' AND form_msg_id=?",
-            (GROUP_ID, form.message_id),
-        ).fetchone()
-        if not row:
-            await reply_html(msg, f"{WARN} Is form ka koi pending deal nahi mila. Pehle /add karo.")
-            return
-
-        deal_id, trade_id, amount, buyer, seller, escrower, fuid, fname = row
-        if released > amount:
-            await reply_html(
-                msg, f"{WARN} Release amount deal amount ({inr(amount)}) se zyada nahi ho sakta."
-            )
-            return
-
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        con.execute(
-            "UPDATE deals SET status='completed', closed_at=?, released=? WHERE id=?",
-            (now, released, deal_id),
-        )
-
-    fee = amount - released
-    text = (
-        f"{DONE} <b>Deal Completed</b>\n"
-        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>\n"
-        f"{GEM} <b>Amount:</b> {inr(amount)}\n"
-        f"{FEE} <b>Fee:</b> {inr(fee)}\n"
-        f"{REL} <b>Released:</b> {inr(released)}\n"
-    )
-    if fuid:
-        text += f"{USER} <b>Form:</b> {mention(fuid, fname)}\n"
-    if buyer != "-":
-        text += f"{BUYER} <b>Buyer:</b> {tag(buyer)}\n"
-    if seller != "-":
-        text += f"{SELLER} <b>Seller:</b> {tag(seller)}\n"
-    text += f"{SHIELD} <b>Escrowed By:</b> {esc(escrower)}"
-
-    await reply_html(form, text)
-
-
-# ---------- Form system ----------
-BLANK_FORM = (
-    "ESCROW DEAL\n\n"
-    "• SELLER : \n\n"
-    "• BUYER : \n\n"
-    "• DEAL DETAIL : \n\n"
-    "• DEAL AMOUNT : \n\n"
-    "• EXPECTED TIME TO COMPLETE DEAL : \n\n"
-    "• T/C (IF ANY) : \n\n"
-    "• ESCROW MORE THAN ESCROWER LIMIT AT YOUR OWN RISK"
-)
 
 FORM_LABELS = {
     "SELLER": "SELLER",
@@ -418,91 +312,64 @@ FORM_LABELS = {
     "EXPECTED TIME TO COMPLETE DEAL": "EXPECTED TIME",
     "EXPECTED TIME": "EXPECTED TIME",
 }
-FORM_REQUIRED = ["SELLER", "BUYER", "DEAL DETAIL", "DEAL AMOUNT", "EXPECTED TIME"]
+FORM_REQUIRED = [
+    "SELLER",
+    "BUYER",
+    "DEAL DETAIL",
+    "DEAL AMOUNT",
+    "EXPECTED TIME",
+]
+
+BLANK_FORM = "\n\n".join(
+    [
+        "ESCROW DEAL",
+        "• SELLER : ",
+        "• BUYER : ",
+        "• DEAL DETAIL : ",
+        "• DEAL AMOUNT : ",
+        "• EXPECTED TIME TO COMPLETE DEAL : ",
+        "• T/C (IF ANY) : ",
+        "• ESCROW MORE THAN ESCROWER LIMIT AT YOUR OWN RISK",
+    ]
+)
 
 
-def parse_form(text):
-    """Form jaisa message ho to {field: value} lautata hai, warna None."""
-    norm = unicodedata.normalize("NFKC", text)   # bold-font akshar normal ban jate hain
-    if "ESCROW DEAL" not in norm.upper():
-        return None
+def parse_fields(text):
+    """'LABEL : value' wali lines se {field: value} banao."""
+    norm = unicodedata.normalize("NFKC", text or "")
     values = {}
     for line in norm.splitlines():
         if ":" not in line:
             continue
         label, value = line.split(":", 1)
-        label = re.sub(r"[^A-Za-z/() ]", "", label).strip().upper()
+        label = re.sub(r"[^A-Za-z/() ]", "", label)
+        label = " ".join(label.split()).upper()
         key = FORM_LABELS.get(label)
-        if key:
+        if key and key not in values:
             values[key] = value.strip()
-    if len(values) < 3:
-        return None
     return values
+
+
+def parse_form(text):
+    """Form jaisa message ho to fields lautao, warna None."""
+    norm = unicodedata.normalize("NFKC", text or "").upper()
+    if "ESCROW DEAL" not in norm and "ESCROW FORM" not in norm:
+        return None
+    values = parse_fields(text)
+    return values if len(values) >= 3 else None
 
 
 def is_empty(value):
     return re.sub(r"[\s_\-.•·:|]+", "", value or "") == ""
 
 
-async def send_blank_form(message, user):
-    await message.reply_text(
-        f"{FILE} {mention(user.id, user.first_name)} <b>Ye form copy karke poora bharo</b> 👇\n\n"
-        f"<pre>{esc(BLANK_FORM)}</pre>",
-        parse_mode=ParseMode.HTML,
-    )
+# =====================================================================
+# FEES
+# =====================================================================
 
 
-async def form_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != GROUP_ID:
-        return
-    await send_blank_form(update.message, update.effective_user)
-
-
-async def form_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if msg is None or msg.from_user is None or msg.from_user.is_bot:
-        return
-    text = (msg.text or msg.caption or "").strip()
-    if not text:
-        return
-    user = msg.from_user
-
-    # 1) "form" likha to khali form bhejo
-    if text.lower() == "form":
-        await send_blank_form(msg, user)
-        return
-
-    # 2) Member ne form bheja to check karo
-    values = parse_form(text)
-    if values is None:
-        return
-
-    missing = [f for f in FORM_REQUIRED if is_empty(values.get(f, ""))]
-    who = mention(user.id, user.first_name)
-
-    if len(missing) == len(FORM_REQUIRED):
-        await msg.reply_text(
-            f"{WARN} {who} <b>Ye form khali hai!</b>\n"
-            "Pehle sab details bharo, phir bhejo.\n"
-            "Naya form lene ke liye <code>form</code> likho.",
-            parse_mode=ParseMode.HTML,
-        )
-    elif missing:
-        await msg.reply_text(
-            f"{WARN} {who} <b>Form adhura hai!</b>\n"
-            f"Ye details bharo: {esc(', '.join(missing))}",
-            parse_mode=ParseMode.HTML,
-        )
-    else:
-        await msg.reply_text(
-            f"{DONE} {who} <b>{esc(FORM_OK_TEXT)}</b>",
-            parse_mode=ParseMode.HTML,
-        )
-
-
-# ---------- Fees calculate ----------
 def calc_fee(amount):
-    """Rate text aur fee amount lautata hai."""
+    """(rate text, fee amount) lautata hai."""
     if amount < 200:
         return "Flat ₹10", 10.0
     if amount <= 500:
@@ -516,132 +383,293 @@ def calc_fee(amount):
     return f"{rate:g}%", amount * rate / 100
 
 
-def parse_amount(text):
-    cleaned = re.sub(r"[₹,\s]|rs\.?|inr", "", text.lower())
-    try:
-        value = float(cleaned)
-    except ValueError:
-        return None
-    return value if value > 0 else None
-
-
 def fee_text(amount):
     rate_text, fee = calc_fee(amount)
-    return (
-        f"{BAG} <b>FEE CALCULATE</b>\n\n"
-        f"{PIN} Deal: {money(amount)}\n"
-        f"{CHART} Rate: {rate_text}\n"
-        f"💸 Fee: {money(fee)}\n\n"
-        f"{DONE} <b>Total: {money(amount + fee)}</b>"
+    lines = [
+        f"{BAG} <b>FEE CALCULATE</b>",
+        "",
+        f"{PIN} Deal: {money(amount)}",
+        f"{CHART} Rate: {rate_text}",
+        f"💸 Fee: {money(fee)}",
+        "",
+        f"{DONE} <b>Total: {money(amount + fee)}</b>",
+    ]
+    return "\n".join(lines)
+
+
+# =====================================================================
+# /start DASHBOARD
+# =====================================================================
+
+
+def dashboard_text(name):
+    lines = [
+        f"{STAR} <b>Welcome {esc(name)}!</b>",
+        DIVIDER,
+        f"{SHIELD} <b>Escrow Bot for @rizzlerxescrow</b>",
+        f"{CHAT} <b>Provided by @rizzlerxescrow</b>",
+        "",
+        f"{SIGN} <b>This is Your Personal Dashboard:</b>",
+        DIVIDER,
+        f"Select the option below {BOLT}",
+    ]
+    return "\n".join(lines)
+
+
+def dashboard_buttons():
+    rows = [
+        [InlineKeyboardButton("📊 Total Deal", callback_data="total_deal")],
+        [InlineKeyboardButton("📁 My Deal Info", callback_data="my_deal")],
+        [InlineKeyboardButton("🏆 Global Ranking", callback_data="ranking")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def back_button():
+    row = [InlineKeyboardButton("🔙 Back", callback_data="back")]
+    return InlineKeyboardMarkup([row])
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg is None:
+        return
+    if update.effective_chat.type != "private":
+        await msg.reply_text(
+            "Dashboard ke liye bot ke private chat mein /start karo."
+        )
+        return
+    name = update.effective_user.first_name or "User"
+    await msg.reply_text(
+        dashboard_text(name),
+        parse_mode=ParseMode.HTML,
+        reply_markup=dashboard_buttons(),
     )
 
 
-async def fee_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None:
+        return
+    text = f"{CARD} <b>Your ID:</b> <code>{update.effective_user.id}</code>"
+    await reply_html(update.message, text)
+
+
+async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None:
+        return
+    text = f"{CARD} <b>Chat ID:</b> <code>{update.effective_chat.id}</code>"
+    await reply_html(update.message, text)
+
+
+# =====================================================================
+# /add AND /close (form par reply, sirf ADMIN_IDS, sirf group)
+# =====================================================================
+
+
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if msg is None or msg.from_user is None or msg.from_user.is_bot:
+    if msg is None or not in_group(update):
         return
-    text = (msg.text or "").strip()
-    if not text:
+    if not is_admin(update):
+        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
         return
 
-    user = msg.from_user
-    low = text.lower()
-    wait = context.bot_data.setdefault("fee_wait", {})
-    now = tm.time()
-
-    # sirf "fees" likha: amount pucho
-    if low in ("fee", "fees"):
-        wait[user.id] = now + FEE_WAIT_SECONDS
-        await msg.reply_text(
-            f"{BAG} {mention(user.id, user.first_name)} <b>Kitna amount hai?</b>\n"
-            "Amount number mein bhejo, jaise <code>1000</code>",
-            parse_mode=ParseMode.HTML,
+    form = msg.reply_to_message
+    if form is None:
+        await reply_html(
+            msg,
+            f"{WARN} Form par <b>reply</b> karke likho: <code>/add 400</code>",
         )
         return
 
-    amount = None
-    direct = re.match(r"^fees?\s+(.+)$", low)
-    if direct:
-        amount = parse_amount(direct.group(1))
-    elif user.id in wait:
-        if wait[user.id] < now:
-            del wait[user.id]
-            return
-        amount = parse_amount(text)
-
-    if amount is None:
+    form_user = form.from_user
+    if form_user is None or form_user.is_bot:
+        await reply_html(msg, f"{WARN} Ye form kisi member ka hona chahiye.")
         return
 
-    wait.pop(user.id, None)
-    await msg.reply_text(fee_text(amount), parse_mode=ParseMode.HTML)
+    form_text = form.text or form.caption or ""
+    fields = parse_fields(form_text)
+    args = context.args or []
+
+    if args:
+        amount = parse_amount(args[0])
+    else:
+        amount = find_amount(fields.get("DEAL AMOUNT", ""))
+    if amount is None:
+        await reply_html(
+            msg,
+            f"{WARN} Amount sahi likho: <code>/add 400</code>",
+        )
+        return
+
+    buyer = None
+    seller = None
+    if len(args) > 1:
+        buyer = args[1].lstrip("@").lower()
+    if len(args) > 2:
+        seller = args[2].lstrip("@").lower()
+    buyer = buyer or username_in(fields.get("BUYER")) or "-"
+    seller = seller or username_in(fields.get("SELLER")) or "-"
+
+    chat_id = update.effective_chat.id
+    exists = db_one(
+        "SELECT trade_id FROM deals "
+        "WHERE group_id=? AND form_msg_id=? AND status='pending'",
+        (chat_id, form.message_id),
+    )
+    if exists:
+        await reply_html(
+            msg,
+            f"{WARN} Is form ka deal pehle se add hai: "
+            f"<code>{exists[0]}</code>",
+        )
+        return
+
+    admin = update.effective_user
+    trade_id = new_trade_id()
+    db_exec(
+        "INSERT INTO deals (trade_id, group_id, amount, buyer, seller, "
+        "escrower_id, escrower_name, status, created_at, "
+        "form_msg_id, form_user_id, form_user_name) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            trade_id, chat_id, amount, buyer, seller,
+            admin.id, admin.first_name or "Admin", "pending", now_text(),
+            form.message_id, form_user.id, form_user.first_name or "User",
+        ),
+    )
+
+    form_name = mention(form_user.id, form_user.first_name)
+    lines = [
+        f"{BAG} <b>Deal Added</b>",
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>",
+        f"{GEM} <b>Amount:</b> {inr(amount)}",
+        f"{USER} <b>Form:</b> {form_name}",
+    ]
+    if buyer != "-":
+        lines.append(f"{BUYER} <b>Buyer:</b> {tag(buyer)}")
+    if seller != "-":
+        lines.append(f"{SELLER} <b>Seller:</b> {tag(seller)}")
+    escrower = esc(admin.first_name or "Admin")
+    lines.append(f"{SHIELD} <b>Escrowed By:</b> {escrower}")
+    lines.append("")
+    lines.append("Close ke liye form par reply karke likho:")
+    lines.append("<code>/close 360</code> (360 = release amount)")
+    await reply_to_form(form, msg, "\n".join(lines))
 
 
-# ---------- Spam warning ----------
-async def spam_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg is None or not in_group(update):
+        return
+    if not is_admin(update):
+        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
+        return
+
+    args = context.args or []
+    form = msg.reply_to_message
+    chat_id = update.effective_chat.id
+    cols = (
+        "SELECT id, trade_id, amount, buyer, seller, escrower_name, "
+        "form_user_id, form_user_name, form_msg_id FROM deals "
+        "WHERE group_id=? AND status='pending' AND "
+    )
+
+    if form is not None and args:
+        released = parse_amount(args[0])
+        row = db_one(cols + "form_msg_id=?", (chat_id, form.message_id))
+    elif form is None and len(args) >= 2:
+        released = parse_amount(args[1])
+        row = db_one(cols + "trade_id=?", (chat_id, args[0].upper()))
+    else:
+        await reply_html(
+            msg,
+            f"{WARN} Form par <b>reply</b> karke likho: "
+            "<code>/close 360</code>",
+        )
+        return
+
+    if released is None:
+        await reply_html(
+            msg, f"{WARN} Release amount sahi number mein likho."
+        )
+        return
+    if row is None:
+        await reply_html(
+            msg,
+            f"{WARN} Is form ka koi pending deal nahi mila. "
+            "Pehle /add karo.",
+        )
+        return
+
+    (deal_id, trade_id, amount, buyer, seller,
+     escrower, fuid, fname, form_msg_id) = row
+
+    if released > amount + 0.0001:
+        await reply_html(
+            msg,
+            f"{WARN} Release amount deal amount ({inr(amount)}) "
+            "se zyada nahi ho sakta.",
+        )
+        return
+
+    db_exec(
+        "UPDATE deals SET status='completed', closed_at=?, released=? "
+        "WHERE id=?",
+        (now_text(), released, deal_id),
+    )
+
+    lines = [
+        f"{DONE} <b>Deal Completed</b>",
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>",
+        f"{GEM} <b>Amount:</b> {inr(amount)}",
+        f"{FEE} <b>Fee:</b> {inr(amount - released)}",
+        f"{REL} <b>Released:</b> {inr(released)}",
+    ]
+    if fuid:
+        lines.append(f"{USER} <b>Form:</b> {mention(fuid, fname)}")
+    if buyer != "-":
+        lines.append(f"{BUYER} <b>Buyer:</b> {tag(buyer)}")
+    if seller != "-":
+        lines.append(f"{SELLER} <b>Seller:</b> {tag(seller)}")
+    lines.append(f"{SHIELD} <b>Escrowed By:</b> {esc(escrower)}")
+    text = "\n".join(lines)
+
+    if form is not None:
+        await reply_to_form(form, msg, text)
+    else:
+        await reply_html(msg, text)
+
+
+# =====================================================================
+# FORM SYSTEM
+# =====================================================================
+
+
+async def send_blank_form(message, user):
+    who = mention(user.id, user.first_name)
+    text = (
+        f"{FILE} {who} <b>Ye form copy karke poora bharo</b> 👇\n\n"
+        f"<pre>{esc(BLANK_FORM)}</pre>"
+    )
+    await reply_html(message, text)
+
+
+async def form_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None or not in_group(update):
+        return
+    await send_blank_form(update.message, update.effective_user)
+
+
+async def form_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if msg is None or msg.from_user is None or msg.from_user.is_bot:
         return
+    text = (msg.text or msg.caption or "").strip()
+    if not text:
+        return
     user = msg.from_user
-    if user.id in ADMIN_IDS:
-        return
 
-    if msg.text:
-        key = "t:" + msg.text.strip().lower()
-    elif msg.sticker:
-        key = "s:" + msg.sticker.file_unique_id
-    elif msg.photo:
-        key = "p:" + msg.photo[-1].file_unique_id
-    elif msg.caption:
-        key = "c:" + msg.caption.strip().lower()
-    else:
-        return
-
-    now = tm.time()
-    hist = context.bot_data.setdefault("spam", {}).setdefault(user.id, [])
-    hist[:] = [(t, k) for t, k in hist if now - t <= SPAM_SECONDS]
-    hist.append((now, key))
-
-    count = sum(1 for _, k in hist if k == key)
-    if count < SPAM_COUNT:
-        return
-    hist.clear()
-
-    # group ke admin ko warning nahi dena
-    try:
-        member = await context.bot.get_chat_member(GROUP_ID, user.id)
-        if member.status in ("administrator", "creator"):
-            return
-    except Exception:
-        pass
-
-    await msg.reply_text(
-        f"{WARN} {mention(user.id, user.first_name)} <b>WARNING!</b>\n"
-        f"Aapne ek hi message {SPAM_COUNT} baar bheja hai. "
-        "Spam mat karo, dobara karne par action liya jayega.",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ---------- Screens (sirf GROUP_ID ka data) ----------
-def screen_total():
-    with db() as con:
-        total = con.execute(
-            "SELECT COUNT(*) FROM deals WHERE group_id=?", (GROUP_ID,)
-        ).fetchone()[0]
-        done = con.execute(
-            "SELECT COUNT(*), COALESCE(SUM(amount),0), COALESCE(MAX(amount),0), "
-            "COALESCE(SUM(COALESCE(released, amount)),0) "
-            "FROM deals WHERE group_id=? AND status='completed'",
-            (GROUP_ID,),
-        ).fetchone()
-        pend = con.execute(
-            "SELECT COUNT(*), COALESCE(SUM(amount),0) FROM deals "
-            "WHERE group_id=? AND status='pending'",
-            (GROUP_ID,),
-        ).fetchone()
-    return (
-        f"{CHART} <b>Total Deal</b>\n"
-        "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
-        f"{CARD} Total Deals: <b>{total}</b>\n"
-        f"{DONE} Completed: <b>{done[0]}</b>\n"
-                f"{BAG} Total Amount: <b>{inr(done[1])}</b>\n"
+    # 1) "form" likha -> khali form do
+    if text.lower() == "form":
+        await sen
