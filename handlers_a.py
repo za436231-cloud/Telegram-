@@ -9,8 +9,8 @@ def dashboard_text(name):
     lines = [
         f"{STAR} <b>Welcome {esc(name)}!</b>",
         DIVIDER,
-        f"{SHIELD} <b>Escrow Bot for @rizzlerxescrow</b>",
-        f"{CHAT} <b>Provided by @rizzlerxescrow</b>",
+        f"{SHIELD} <b>Escrow Bot for @zenoxescrowservice</b>",
+        f"{CHAT} <b>Provided by @zenoxescrowservice</b>",
         "",
         f"{SIGN} <b>This is Your Personal Dashboard:</b>",
         DIVIDER,
