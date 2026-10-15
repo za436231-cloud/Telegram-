@@ -1,7 +1,10 @@
 from core import *
 from handlers_a import *
 from handlers_b import *
-
+from core import *
+from handlers_a import *
+from handlers_b import *
+from custom import *
 # =====================================================================
 # ERRORS + MAIN
 # =====================================================================
