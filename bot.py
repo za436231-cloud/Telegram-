@@ -644,4 +644,4 @@ def screen_total():
         "╍╍╍╍╍╍╍╍╍╍╍╍╍╍\n"
         f"{CARD} Total Deals: <b>{total}</b>\n"
         f"{DONE} Completed: <b>{done[0]}</b>\n"
-        f"{BAG} Total
+                f"{BAG} Total Amount: <b>{inr(done[1])}</b>\n"
