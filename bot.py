@@ -40,10 +40,6 @@ logging.basicConfig(
 # ya neeche "YAHAN_APNA_TOKEN_DAALO" ki jagah poora token likho.
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAGHHelHWS0ZV7s9IMrMyGJ8EXzTMAyth1o"
 
-if "YAHAN_APNA_TOKEN" in BOT_TOKEN or ":" not in BOT_TOKEN:
-    raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
-
-
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
 # jaise [-1004383728292, -100123456789]. ID /chatid se milta hai.
 GROUP_IDS = [-1004383728292]
