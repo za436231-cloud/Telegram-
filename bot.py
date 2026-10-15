@@ -29,13 +29,17 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAHUZicwKi75gQigVzugwvU44wSyH1DKgO0"
+BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAGHHelHWS0ZV7s9IMrMyGJ8EXzTMAyth1o"
 
 if "YAHAN_APNA_TOKEN" in BOT_TOKEN or ":" not in BOT_TOKEN:
     raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
 
 GROUP_ID = -1004383728292
 DB_PATH = os.environ.get("DB_PATH", "bot.db")
+
+# Sirf in IDs wale log /add aur /close chala sakte hain.
+# Aur admin jodna ho to comma lagakar naya ID likho, jaise [7054168366, 123456789]
+ADMIN_IDS = [7054168366]
 
 # IST 12:00 AM = 18:30 UTC (pichla din), IST 6:00 AM = 00:30 UTC
 LOCK_TIME = time(18, 30, tzinfo=timezone.utc)
@@ -136,10 +140,8 @@ def mention(uid, name):
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    member = await context.bot.get_chat_member(
-        update.effective_chat.id, update.effective_user.id
-    )
-    return member.status in ("administrator", "creator")
+    # Sirf ADMIN_IDS wale log hi /add aur /close chala sakte hain
+    return update.effective_user.id in ADMIN_IDS
 
 
 async def reply_html(message, text):
@@ -222,13 +224,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ---------- /add and /close (form par reply, sirf admin, sirf group) ----------
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await reply_html(
+        update.message,
+        f"{CARD} <b>Your ID:</b> <code>{update.effective_user.id}</code>",
+    )
+
+
+# ---------- /add and /close (form par reply, sirf ADMIN_IDS, sirf group) ----------
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if update.effective_chat.id != GROUP_ID:
         return
     if not await is_admin(update, context):
-        await reply_html(msg, f"{WARN} Sirf admin ye command use kar sakta hai.")
+        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
         return
 
     form = msg.reply_to_message
@@ -303,7 +312,7 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != GROUP_ID:
         return
     if not await is_admin(update, context):
-        await reply_html(msg, f"{WARN} Sirf admin ye command use kar sakta hai.")
+        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
         return
 
     form = msg.reply_to_message
@@ -553,6 +562,10 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     init_db()
+
+    if not ADMIN_IDS:
+        logging.warning("ADMIN_IDS khali hai, koi bhi /add ya /close nahi chala payega.")
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     if app.job_queue is None:
@@ -562,6 +575,7 @@ def main():
         )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("add", add))
     app.add_handler(CommandHandler("close", close))
     app.add_handler(CallbackQueryHandler(on_button))
@@ -572,7 +586,9 @@ def main():
     app.job_queue.run_daily(unlock_group, time=UNLOCK_TIME, name="unlock_group")
 
     print("Bot started...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_ok=True) if False else app.run_polling(
+        allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
+    )
 
 
 if __name__ == "__main__":
