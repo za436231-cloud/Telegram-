@@ -1,4 +1,3 @@
-
 import os
 import re
 import html
@@ -32,15 +31,15 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # =====================================================================
 # SETTINGS (sirf yahi hissa badalna hai)
 # =====================================================================
-# Token Railway Variables mein BOT_TOKEN naam se daalo,
-# ya neeche "YAHAN_APNA_TOKEN_DAALO" ki jagah poora token likho.
-BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAGHHelHWS0ZV7s9IMrMyGJ8EXzTMAyth1o"
-if ":" not in BOT_TOKEN:
-    raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
+# Token SIRF Railway Variables mein BOT_TOKEN naam se daalo.
+# Code mein kabhi token mat likho.
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8974209978:AAHza0uVm-Z9c-6zPup0T8PoQe68-1R38KU").strip()
+
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
 # jaise [-1004383728292, -100123456789]. ID /chatid se milta hai.
 GROUP_IDS = [-1004383728292]
@@ -190,8 +189,8 @@ def in_group(update):
     return chat is not None and chat.id in GROUP_IDS
 
 
-async def reply_html(message, text):
-    return await message.reply_text(text, parse_mode=ParseMode.HTML)
+async def reply_html(message, text, **kwargs):
+    return await message.reply_text(text, parse_mode=ParseMode.HTML, **kwargs)
 
 
 async def reply_to_form(form, fallback, text):
@@ -244,6 +243,9 @@ def db_exec(sql, params=()):
 
 
 def init_db():
+    folder = os.path.dirname(DB_PATH)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
     db_exec(
         "CREATE TABLE IF NOT EXISTS deals ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -463,6 +465,124 @@ async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
+# DASHBOARD BUTTONS (Total Deal / My Deal Info / Ranking / Back)
+# =====================================================================
+
+
+def total_deal_text():
+    done = db_one(
+        f"SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM deals "
+        f"WHERE {G_SQL} AND status='completed'",
+        G_ARGS,
+    )
+    pending = db_one(
+        f"SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM deals "
+        f"WHERE {G_SQL} AND status='pending'",
+        G_ARGS,
+    )
+    lines = [
+        f"{CHART} <b>TOTAL DEALS</b>",
+        DIVIDER,
+        f"{DONE} <b>Completed:</b> {done[0]}",
+        f"{GEM} <b>Completed Volume:</b> {inr(done[1])}",
+        f"{PIN} <b>Pending:</b> {pending[0]}",
+        f"{BAG} <b>Pending Volume:</b> {inr(pending[1])}",
+    ]
+    return "\n".join(lines)
+
+
+def my_deal_text(user):
+    uname = (user.username or "").lower()
+    where = f"{G_SQL} AND (form_user_id=? OR (?<>'' AND (buyer=? OR seller=?)))"
+    params = G_ARGS + (user.id, uname, uname, uname)
+    done = db_one(
+        f"SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM deals "
+        f"WHERE {where} AND status='completed'",
+        params,
+    )
+    pending = db_one(
+        f"SELECT COUNT(*) FROM deals WHERE {where} AND status='pending'",
+        params,
+    )
+    recent = db_all(
+        f"SELECT trade_id, amount, status FROM deals "
+        f"WHERE {where} ORDER BY id DESC LIMIT 5",
+        params,
+    )
+    lines = [
+        f"{FILE} <b>MY DEAL INFO</b>",
+        DIVIDER,
+        f"{DONE} <b>Completed:</b> {done[0]}",
+        f"{GEM} <b>Total Volume:</b> {inr(done[1])}",
+        f"{PIN} <b>Pending:</b> {pending[0]}",
+    ]
+    if recent:
+        lines.append("")
+        lines.append(f"{TREND} <b>Recent:</b>")
+        for trade_id, amount, status in recent:
+            mark = "✅" if status == "completed" else "⏳"
+            lines.append(f"{mark} <code>{trade_id}</code> - {inr(amount)}")
+    else:
+        lines.append("")
+        lines.append("Abhi tak koi deal nahi mila.")
+    return "\n".join(lines)
+
+
+def ranking_text():
+    rows = db_all(
+        f"SELECT form_user_id, MAX(form_user_name), COUNT(*), SUM(amount) "
+        f"FROM deals WHERE {G_SQL} AND status='completed' "
+        f"AND form_user_id IS NOT NULL "
+        f"GROUP BY form_user_id ORDER BY SUM(amount) DESC LIMIT 10",
+        G_ARGS,
+    )
+    lines = [f"{TREND} <b>GLOBAL RANKING</b>", DIVIDER]
+    if not rows:
+        lines.append("Abhi koi completed deal nahi hai.")
+        return "\n".join(lines)
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (uid, name, count, volume) in enumerate(rows):
+        mark = medals[i] if i < 3 else f"{i + 1}."
+        lines.append(
+            f"{mark} {mention(uid, name)} - {inr(volume)} ({count} deals)"
+        )
+    return "\n".join(lines)
+
+
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query is None:
+        return
+    data = query.data
+    user = query.from_user
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    if data == "total_deal":
+        text, markup = total_deal_text(), back_button()
+    elif data == "my_deal":
+        text, markup = my_deal_text(user), back_button()
+    elif data == "ranking":
+        text, markup = ranking_text(), back_button()
+    elif data == "back":
+        text = dashboard_text(user.first_name or "User")
+        markup = dashboard_buttons()
+    else:
+        return
+
+    try:
+        await query.edit_message_text(
+            text, parse_mode=ParseMode.HTML, reply_markup=markup
+        )
+    except Exception as e:
+        # "message is not modified" jaisi galti ignore
+        logging.info("edit skipped: %s", e)
+
+
+# =====================================================================
 # /add AND /close (form par reply, sirf ADMIN_IDS, sirf group)
 # =====================================================================
 
@@ -561,116 +681,4 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if msg is None or not in_group(update):
-        return
-    if not is_admin(update):
-        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
-        return
-
-    args = context.args or []
-    form = msg.reply_to_message
-    chat_id = update.effective_chat.id
-    cols = (
-        "SELECT id, trade_id, amount, buyer, seller, escrower_name, "
-        "form_user_id, form_user_name, form_msg_id FROM deals "
-        "WHERE group_id=? AND status='pending' AND "
-    )
-
-    if form is not None and args:
-        released = parse_amount(args[0])
-        row = db_one(cols + "form_msg_id=?", (chat_id, form.message_id))
-    elif form is None and len(args) >= 2:
-        released = parse_amount(args[1])
-        row = db_one(cols + "trade_id=?", (chat_id, args[0].upper()))
-    else:
-        await reply_html(
-            msg,
-            f"{WARN} Form par <b>reply</b> karke likho: "
-            "<code>/close 360</code>",
-        )
-        return
-
-    if released is None:
-        await reply_html(
-            msg, f"{WARN} Release amount sahi number mein likho."
-        )
-        return
-    if row is None:
-        await reply_html(
-            msg,
-            f"{WARN} Is form ka koi pending deal nahi mila. "
-            "Pehle /add karo.",
-        )
-        return
-
-    (deal_id, trade_id, amount, buyer, seller,
-     escrower, fuid, fname, form_msg_id) = row
-
-    if released > amount + 0.0001:
-        await reply_html(
-            msg,
-            f"{WARN} Release amount deal amount ({inr(amount)}) "
-            "se zyada nahi ho sakta.",
-        )
-        return
-
-    db_exec(
-        "UPDATE deals SET status='completed', closed_at=?, released=? "
-        "WHERE id=?",
-        (now_text(), released, deal_id),
-    )
-
-    lines = [
-        f"{DONE} <b>Deal Completed</b>",
-        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>",
-        f"{GEM} <b>Amount:</b> {inr(amount)}",
-        f"{FEE} <b>Fee:</b> {inr(amount - released)}",
-        f"{REL} <b>Released:</b> {inr(released)}",
-    ]
-    if fuid:
-        lines.append(f"{USER} <b>Form:</b> {mention(fuid, fname)}")
-    if buyer != "-":
-        lines.append(f"{BUYER} <b>Buyer:</b> {tag(buyer)}")
-    if seller != "-":
-        lines.append(f"{SELLER} <b>Seller:</b> {tag(seller)}")
-    lines.append(f"{SHIELD} <b>Escrowed By:</b> {esc(escrower)}")
-    text = "\n".join(lines)
-
-    if form is not None:
-        await reply_to_form(form, msg, text)
-    else:
-        await reply_html(msg, text)
-
-
-# =====================================================================
-# FORM SYSTEM
-# =====================================================================
-
-
-async def send_blank_form(message, user):
-    who = mention(user.id, user.first_name)
-    text = (
-        f"{FILE} {who} <b>Ye form copy karke poora bharo</b> 👇\n\n"
-        f"<pre>{esc(BLANK_FORM)}</pre>"
-    )
-    await reply_html(message, text)
-
-
-async def form_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message is None or not in_group(update):
-        return
-    await send_blank_form(update.message, update.effective_user)
-
-
-async def form_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if msg is None or msg.from_user is None or msg.from_user.is_bot:
-        return
-    text = (msg.text or msg.caption or "").strip()
-    if not text:
-        return
-    user = msg.from_user
-
-    # 1) "form" likha -> khali form do
-    if text.lower() == "form":
-        await sen
+    if msg is None or not in_group(up
