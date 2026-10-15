@@ -10,6 +10,9 @@ from telegram import ReplyParameters
 FORM_LABELS["T/C (IF ANY)"] = "T/C"
 FORM_LABELS["T/C"] = "T/C"
 
+DETAIL_E = ce("5257965174979042426", "📝")
+TIME_E = ce("5258258882022612173", "⏲")
+
 NO_TC = ("na", "n/a", "none", "no", "nil", "nahi", "nahin", "-")
 
 _cols_ready = False
@@ -157,8 +160,8 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "",
         f"{BUYER} <b>Buyer:</b> {esc(buyer_show)}",
         f"{SELLER} <b>Seller:</b> {esc(seller_show)}",
-        f"{FILE} <b>Detail:</b> {esc(plain(fields.get('DEAL DETAIL')))}",
-        f"{CAL} <b>Expected Time:</b> "
+        f"{DETAIL_E} <b>Detail:</b> {esc(plain(fields.get('DEAL DETAIL')))}",
+        f"{TIME_E} <b>Expected Time:</b> "
         f"{esc(plain(fields.get('EXPECTED TIME')))}",
         f"{PIN} <b>T/C:</b> {esc(tc_show(fields.get('T/C')))}",
         "",
