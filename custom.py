@@ -13,6 +13,11 @@ FORM_LABELS["T/C"] = "T/C"
 DETAIL_E = ce("5257965174979042426", "📝")
 TIME_E = ce("5258258882022612173", "⏲")
 
+# /close ke emoji. Exact premium emoji chahiye to /emojiid se ID nikal ke
+# neeche ID badal do (abhi 🏷 aur 🛡 premium emoji lage hain).
+CLOSE_ID_E = TAGI
+CLOSE_ESC_E = SHIELD
+
 NO_TC = ("na", "n/a", "none", "no", "nil", "nahi", "nahin", "-")
 
 _cols_ready = False
@@ -295,9 +300,9 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [
         f"{DONE} <b>Deal Completed</b>",
-        f"🎫 <b>Trade ID:</b> {esc(trade_id)}",
+        f"{CLOSE_ID_E} <b>Trade ID:</b> {esc(trade_id)}",
         f"{GEM} <b>Released:</b> {inr(released)}",
-        f"🔐 <b>Escrowed By:</b> {closer_top}",
+        f"{CLOSE_ESC_E} <b>Escrowed By:</b> {closer_top}",
         "",
         f"~ {names} are requested to drop the vouch before leaving👇🏻",
         "",
@@ -305,3 +310,42 @@ async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "smooth escrow deal</code>",
     ]
     await send_done(update, context, chat_id, form_msg_id, "\n".join(lines))
+
+
+# =====================================================================
+# /emojiid : premium emoji ki ID nikalne ke liye (sirf ADMIN_IDS)
+#   Premium emoji ke saath likho: /emojiid 🎫🔐
+#   ya kisi premium emoji wale message par reply karke /emojiid likho
+# =====================================================================
+
+
+async def emojiid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg is None or not is_admin(update):
+        return
+    target = msg.reply_to_message or msg
+    found = []
+    for ent in target.entities or ():
+        if ent.type == "custom_emoji" and ent.custom_emoji_id:
+            found.append((target.parse_entity(ent), ent.custom_emoji_id))
+    for ent in target.caption_entities or ():
+        if ent.type == "custom_emoji" and ent.custom_emoji_id:
+            found.append(
+                (target.parse_caption_entity(ent), ent.custom_emoji_id)
+            )
+    seen = set()
+    lines = []
+    for char, eid in found:
+        if eid in seen:
+            continue
+        seen.add(eid)
+        lines.append(f"{esc(char)} <code>{eid}</code>")
+    if not lines:
+        await reply_html(
+            msg,
+            f"{WARN} Premium emoji ke saath likho: <code>/emojiid</code> "
+            "(emoji yahin likho), ya premium emoji wale message par "
+            "reply karo.",
+        )
+        return
+    await reply_html(msg, "\n".join(lines))
