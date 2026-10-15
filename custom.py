@@ -1,7 +1,9 @@
 from core import *
+from telegram import ReplyParameters
 
 # =====================================================================
-# CUSTOM: /add ka naya format (handlers_a.py ke add() ko replace karta hai)
+# CUSTOM: /add aur /close ka naya format
+# (handlers_a.py ke add() aur close() ko replace karta hai)
 # =====================================================================
 
 # Form ki "T/C (IF ANY)" line padhne ke liye
@@ -9,6 +11,21 @@ FORM_LABELS["T/C (IF ANY)"] = "T/C"
 FORM_LABELS["T/C"] = "T/C"
 
 NO_TC = ("na", "n/a", "none", "no", "nil", "nahi", "nahin", "-")
+
+_cols_ready = False
+
+
+def ensure_cols():
+    """Buyer/Seller ka dikhne wala naam rakhne ke liye 2 naye column."""
+    global _cols_ready
+    if _cols_ready:
+        return
+    for col in ("buyer_show", "seller_show"):
+        try:
+            db_exec(f"ALTER TABLE deals ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
+    _cols_ready = True
 
 
 def new_deal_id():
@@ -45,6 +62,11 @@ def tc_show(value):
     if is_empty(value) or value.lower().strip(" .") in NO_TC:
         return "Not Provided"
     return value[:200]
+
+
+# =====================================================================
+# /add
+# =====================================================================
 
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,7 +114,10 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args[2].lstrip("@").lower() if len(args) > 2
         else username_in(fields.get("SELLER")) or "-"
     )
+    buyer_show = party_show(buyer_raw)
+    seller_show = party_show(seller_raw)
 
+    ensure_cols()
     chat_id = update.effective_chat.id
     exists = db_one(
         "SELECT trade_id FROM deals "
@@ -112,29 +137,168 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_exec(
         "INSERT INTO deals (trade_id, group_id, amount, buyer, seller, "
         "escrower_id, escrower_name, status, created_at, "
-        "form_msg_id, form_user_id, form_user_name) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "form_msg_id, form_user_id, form_user_name, "
+        "buyer_show, seller_show) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             trade_id, chat_id, amount, buyer, seller,
             admin.id, admin.first_name or "Admin", "pending", now_text(),
             form.message_id, form_user.id, form_user.first_name or "User",
+            buyer_show, seller_show,
         ),
     )
 
     rate_text, fee = calc_fee(amount)
     lines = [
         f"{BAG} <b>Deal Amount:</b> {inr(amount)}",
-        f"📤 <b>Fee:</b> {rate_label(rate_text)} — {inr(fee)}",
-        f"📤 <b>Net Release:</b> {inr(amount - fee)}",
-        f"🆔 <b>Trade ID:</b> <code>{trade_id}</code>",
+        f"{FEE} <b>Fee:</b> {rate_label(rate_text)} — {inr(fee)}",
+        f"{GEM} <b>Net Release:</b> {inr(amount - fee)}",
+        f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>",
         "",
-        f"{BUYER} <b>Buyer:</b> {esc(party_show(buyer_raw))}",
-        f"{SELLER} <b>Seller:</b> {esc(party_show(seller_raw))}",
-        f"📝 <b>Detail:</b> {esc(plain(fields.get('DEAL DETAIL')))}",
-        f"⏱️ <b>Expected Time:</b> "
+        f"{BUYER} <b>Buyer:</b> {esc(buyer_show)}",
+        f"{SELLER} <b>Seller:</b> {esc(seller_show)}",
+        f"{FILE} <b>Detail:</b> {esc(plain(fields.get('DEAL DETAIL')))}",
+        f"{CAL} <b>Expected Time:</b> "
         f"{esc(plain(fields.get('EXPECTED TIME')))}",
-        f"📌 <b>T/C:</b> {esc(tc_show(fields.get('T/C')))}",
+        f"{PIN} <b>T/C:</b> {esc(tc_show(fields.get('T/C')))}",
         "",
         f"{SHIELD} <b>Escrowed By:</b> {user_tag(admin)}",
     ]
     await reply_to_form(form, msg, "\n".join(lines))
+
+
+# =====================================================================
+# /close
+#   - form par reply:            /close 7275
+#   - bot ke Deal Added par reply: /close 7275
+#   - bina amount ke:            /close  (net release maan lega)
+#   - trade id se:               /close DL-ZENOX-1 7275
+# =====================================================================
+
+
+def shown(show, plain_name):
+    if show:
+        return show
+    return "@" + plain_name if plain_name and plain_name != "-" else "-"
+
+
+async def send_done(update, context, chat_id, form_msg_id, text):
+    if form_msg_id:
+        try:
+            return await context.bot.send_message(
+                chat_id,
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_parameters=ReplyParameters(
+                    message_id=form_msg_id,
+                    allow_sending_without_reply=True,
+                ),
+            )
+        except Exception as e:
+            logging.warning("close reply failed: %s", e)
+    return await reply_html(update.message, text)
+
+
+async def close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg is None or not in_group(update):
+        return
+    if not is_admin(update):
+        await reply_html(msg, f"{WARN} Aap is command ke liye allowed nahi ho.")
+        return
+
+    ensure_cols()
+    args = context.args or []
+    replied = msg.reply_to_message
+    chat_id = update.effective_chat.id
+    cols = (
+        "SELECT id, trade_id, amount, buyer, seller, escrower_name, "
+        "form_user_id, form_user_name, form_msg_id, "
+        "buyer_show, seller_show FROM deals "
+        "WHERE group_id=? AND status='pending' AND "
+    )
+
+    row = None
+    amount_arg = None
+    if replied is not None:
+        amount_arg = args[0] if args else None
+        row = db_one(cols + "form_msg_id=?", (chat_id, replied.message_id))
+        if row is None:
+            body = (replied.text or replied.caption or "").upper()
+            found = re.search(r"DL-[A-Z0-9-]+", body)
+            if found:
+                row = db_one(
+                    cols + "trade_id=?", (chat_id, found.group(0))
+                )
+    elif args:
+        row = db_one(cols + "trade_id=?", (chat_id, args[0].upper()))
+        amount_arg = args[1] if len(args) > 1 else None
+    else:
+        await reply_html(
+            msg,
+            f"{WARN} Form ya Deal Added message par <b>reply</b> karke "
+            "likho: <code>/close 360</code>",
+        )
+        return
+
+    if row is None:
+        await reply_html(
+            msg,
+            f"{WARN} Is form ka koi pending deal nahi mila. "
+            "Pehle /add karo (ya deal pehle hi close ho chuki hai).",
+        )
+        return
+
+    (deal_id, trade_id, amount, buyer, seller, escrower, fuid, fname,
+     form_msg_id, buyer_show, seller_show) = row
+
+    if amount_arg is None:
+        released = amount - calc_fee(amount)[1]
+    else:
+        released = parse_amount(amount_arg)
+        if released is None:
+            await reply_html(
+                msg, f"{WARN} Release amount sahi number mein likho."
+            )
+            return
+
+    if released > amount + 0.0001:
+        await reply_html(
+            msg,
+            f"{WARN} Release amount deal amount ({inr(amount)}) "
+            "se zyada nahi ho sakta.",
+        )
+        return
+
+    db_exec(
+        "UPDATE deals SET status='completed', closed_at=?, released=? "
+        "WHERE id=?",
+        (now_text(), released, deal_id),
+    )
+
+    closer = update.effective_user
+    if closer.username:
+        closer_plain = "@" + closer.username
+        closer_top = esc(closer_plain)
+    else:
+        closer_plain = closer.first_name or "Escrower"
+        closer_top = mention(closer.id, closer_plain)
+
+    parties = [
+        p for p in (shown(buyer_show, buyer), shown(seller_show, seller))
+        if p != "-"
+    ]
+    names = " and ".join(esc(p) for p in parties) or "Buyer and Seller"
+
+    lines = [
+        f"{DONE} <b>Deal Completed</b>",
+        f"🎫 <b>Trade ID:</b> {esc(trade_id)}",
+        f"{GEM} <b>Released:</b> {inr(released)}",
+        f"🔐 <b>Escrowed By:</b> {closer_top}",
+        "",
+        f"~ {names} are requested to drop the vouch before leaving👇🏻",
+        "",
+        f"<code>🤝 I Vouch {esc(closer_plain)} for {inr(released)} "
+        "smooth escrow deal</code>",
+    ]
+    await send_done(update, context, chat_id, form_msg_id, "\n".join(lines))
