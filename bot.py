@@ -39,7 +39,6 @@ logging.basicConfig(
 # Token Railway Variables mein BOT_TOKEN naam se daalo,
 # ya neeche "YAHAN_APNA_TOKEN_DAALO" ki jagah poora token likho.
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8974209978:AAGHHelHWS0ZV7s9IMrMyGJ8EXzTMAyth1o"
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 if ":" not in BOT_TOKEN:
     raise SystemExit("BOT_TOKEN set nahi hai ya galat hai. BotFather wala poora token daalo.")
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
