@@ -2,7 +2,12 @@ from core import *
 from handlers_a import *
 from handlers_b import *
 from custom import *
-from photo import *
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO & filters.CaptionRegex(r"(?i)^/(add|close)\b"),
+            photo_cmd,
+        )
+    )
 
 # =====================================================================
 # ERRORS + MAIN
