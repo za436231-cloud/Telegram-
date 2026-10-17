@@ -2,12 +2,7 @@ from core import *
 from handlers_a import *
 from handlers_b import *
 from custom import *
-    app.add_handler(
-        MessageHandler(
-            filters.PHOTO & filters.CaptionRegex(r"(?i)^/(add|close)\b"),
-            photo_cmd,
-        )
-    )
+from photo import *
 
 # =====================================================================
 # ERRORS + MAIN
@@ -19,7 +14,7 @@ async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def check_token():
-    if not re.fullmatch(r"\d{6,}:[A-Za-z0-9_-]{30,}", BOT_TOKEN):
+    if not re.fullmatch(r"\d{6,}:[A-Za-z0-9_-]{30,}", BOT_TOKEN):8974209978:AAGS9mEBoklylBKV1zSs-ZC_F_PRdiXdp6s
         raise SystemExit(
             "BOT_TOKEN set nahi hai ya galat hai. Railway Variables mein "
             "BotFather wala poora token BOT_TOKEN naam se daalo."
