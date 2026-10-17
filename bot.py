@@ -1,10 +1,9 @@
 from core import *
 from handlers_a import *
 from handlers_b import *
-from core import *
-from handlers_a import *
-from handlers_b import *
 from custom import *
+from photo import *
+
 # =====================================================================
 # ERRORS + MAIN
 # =====================================================================
@@ -37,8 +36,16 @@ def main():
     app.add_handler(CommandHandler("fees", fees_cmd))
     app.add_handler(CommandHandler("lock", lock_cmd))
     app.add_handler(CommandHandler("unlock", unlock_cmd))
+    app.add_handler(CommandHandler("emojiid", emojiid))
+    app.add_handler(CommandHandler("lockstatus", lockstatus))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(ChatJoinRequestHandler(join_request))
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO & filters.CaptionRegex(r"(?i)^/(add|close)\b"),
+            photo_cmd,
+        )
+    )
     app.add_handler(
         MessageHandler(
             (filters.TEXT | filters.CAPTION) & ~filters.COMMAND,
@@ -53,8 +60,9 @@ def main():
             "requirements.txt mein python-telegram-bot[job-queue] likho."
         )
     else:
-        app.job_queue.run_daily(lock_job, LOCK_TIME, name="lock")
-        app.job_queue.run_daily(unlock_job, UNLOCK_TIME, name="unlock")
+        app.job_queue.run_repeating(
+            schedule_check, interval=60, first=10, name="schedule"
+        )
 
     logging.info("Bot start ho gaya.")
     app.run_polling(
