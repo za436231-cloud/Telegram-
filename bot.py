@@ -38,7 +38,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # =====================================================================
 # Token SIRF Railway Variables mein BOT_TOKEN naam se daalo.
 # Code mein kabhi token mat likho.
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8974209978:AAHy10u3vrL10wdzftkng_f5b8moA8DJWaw").strip()
 
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
 # jaise [-1004383728292, -100123456789]. ID /chatid se milta hai.
