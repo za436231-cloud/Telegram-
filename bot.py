@@ -39,7 +39,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 #   Railway Variables mein BOT_TOKEN ho to wahi use hoga.
 #   GitHub repo PRIVATE rakhna. Token kisi ko mat bhejna.
 # ======================================================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip() or "YAHAN_APNA_TOKEN_DAALO"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip() or "8974209978:AAEsyBdHjzuVkdiAVc3R0SwpPWkTBF5o704"
 
 # --- SETTINGS (baaki settings) ---
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
