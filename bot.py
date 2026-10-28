@@ -493,6 +493,7 @@ async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- FEES ---
 
 FREE_DEAL_MODE = True
+FREE_DEAL_MODE = True
 
 def calc_fee(amount):
     if FREE_DEAL_MODE:
@@ -523,7 +524,6 @@ def fee_text(amount=None):
         f"{SHIELD} <b>TRUSTED &amp; VERIFIED ESCROWER SUPPORT</b>",
     ]
     return "\n".join(lines)
-
 # --- DISPLAY HELPERS (/add aur /close ke liye) ---
 NO_TC = ("na", "n/a", "none", "no", "nil", "nahi", "nahin", "-")
 
