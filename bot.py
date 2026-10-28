@@ -493,7 +493,7 @@ async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- FEES ---
 
 FREE_DEAL_MODE = True
-FREE_DEAL_MODE = True
+
 
 def calc_fee(amount):
     if FREE_DEAL_MODE:
@@ -506,23 +506,6 @@ def calc_fee(amount):
         return "2%", round(amount * 0.02, 2)
     return "1.5%", round(amount * 0.015, 2)
 
-def fee_text(amount=None):
-    lines = []
-    if FREE_DEAL_MODE:
-        lines += [
-            f"{DONE} <b>100 DEAL TAK KOI BHI FEE NAHI HAI!</b>",
-            "",
-        ]
-    lines += [
-        f"{FEE} <b>FEE CHART</b>",
-        "• Rs 1 To Rs 300  -  Rs 10",
-        "• Rs 301 To Rs 2000  -  2.5%",
-        "• Rs 2001 To Rs 5000  -  2%",
-        "• Upper Than Rs 5000  -  1.5%",
-        "",
-        f"{STAR} <b>ENJOY KARO</b>",
-        f"{SHIELD} <b>TRUSTED &amp; VERIFIED ESCROWER SUPPORT</b>",
-    ]
     return "\n".join(lines)
 # --- DISPLAY HELPERS (/add aur /close ke liye) ---
 NO_TC = ("na", "n/a", "none", "no", "nil", "nahi", "nahin", "-")
