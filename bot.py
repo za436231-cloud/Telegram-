@@ -1267,7 +1267,9 @@ async def fees_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if msg is None or not in_group(update):
         return
-    await reply_html(msg, fee_text())
+    args = context.args or []
+    amount = parse_amount(" ".join(args)) if args else None
+    await reply_html(msg, fee_text(amount))
 
 async def ask_fee_amount(context, msg):
     # Fee zero hai, amount poochne ki zaroorat nahi
