@@ -1373,13 +1373,19 @@ async def form_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # 2) "fee" / "fees" / "fees 500" / "500 fees" -> free fee message
-    if re.fullmatch(r"fees?\b.*", lowered, re.S):
-        await reply_html(msg, fee_text())
-        return
-    match = re.fullmatch(r"(.+?)\s+fees?", lowered)
-    if match and parse_amount(match.group(1)) is not None:
-        await reply_html(msg, fee_text())
-        return
+    match = re.fullmatch(r"(fees?|free)(?![a-z])\s*[:=\-]?\s*(.*)", lowered, re.S)
+    if match:
+        word, arg = match.group(1), match.group(2).strip()
+        amount = parse_amount(arg) if arg else None
+        if amount is not None or word != "free":
+            await reply_html(msg, fee_text(amount))
+            return
+    match = re.fullmatch(r"(.+?)\s*(?:fees?|free)", lowered)
+    if match:
+        amount = parse_amount(match.group(1))
+        if amount is not None:
+            await reply_html(msg, fee_text(amount))
+            return
 
     # 4) Bhara hua form check karo
     fields = parse_form(text)
