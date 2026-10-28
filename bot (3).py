@@ -1049,7 +1049,7 @@ async def add_deal(update, context, args, photo_id=None):
     rate_text, fee = calc_fee(amount)
     lines = [
         f"{BAG} <b>Deal Amount:</b> {inr(amount)}",
-        f"{FEE} <b>Fee:</b> {inr(0)} (Free)",
+        f"{FEE} <b>Fee:</b> {inr(fee)} ({rate_text})",
         f"{GEM} <b>Net Release:</b> {inr(amount - fee)}",
         f"{TAGI} <b>Trade ID:</b> <code>{trade_id}</code>",
         "",
