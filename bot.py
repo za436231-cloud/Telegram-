@@ -46,7 +46,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN","8967526924:AAHaLAKF7TrTjU_FNpsoOYPzYmbSo
 # --- SETTINGS (baaki settings) ---
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
 # jaise [-1004383728292, -100123456789]. ID /chatid se milta hai.
-GROUP_IDS = [-1004365014195, -1004199368031]
+GROUP_IDS = [-1004359419702,]
 
 # Sirf in IDs wale log /add aur /close chala sakte hain.
 ADMIN_IDS = [8307423896, 7054168366, 8671513822, 5797432326, 5928049700, 5803014746, 8359951414, 7161559973, 8161057089, 7396561160,]
@@ -54,7 +54,7 @@ ADMIN_IDS = [8307423896, 7054168366, 8671513822, 5797432326, 5928049700, 5803014
 # Admin panel (/admin) kis group mein chalega.
 # Admin group ki ID /chatid se milti hai, jaise [-1001234567890].
 # Khali [] rakhoge to /admin kisi bhi chat mein chalega (sirf ADMIN_IDS ke liye).
-ADMIN_GROUP_IDS = [-1004199368031]
+ADMIN_GROUP_IDS = [-1004359419702]
 
 # Database file. Railway Volume lagaya ho to DB_PATH=/data/bot.db rakho.
 DB_PATH = os.environ.get("DB_PATH", "bot.db")
@@ -240,7 +240,7 @@ def new_trade_id():
     while db_one("SELECT 1 FROM deals WHERE trade_id=?", (f"DL-JERRY-{n}",)):
         n += 1
     db_exec("INSERT OR REPLACE INTO meta (k, v) VALUES ('last_trade_no', ?)", (n,))
-    return f"DL-RANCHO-{n}"
+    return f"DL-WORLD-{n}"
 
 # --- PARSING (amount, form) ---
 NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
