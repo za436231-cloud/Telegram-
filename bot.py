@@ -556,7 +556,7 @@ def dashboard_text(name):
         f"{STAR} <b>Welcome {esc(name)}!</b>",
         DIVIDER,
         f"{SHIELD} <b>developer Bot for @ZENOxOG</b>",
-        f"{CHAT} <b>Provided by @RANCHOO_XD</b>",
+        f"{CHAT} <b>Provided by @NOTAxSELLER</b>",
         "",
         f"{SIGN} <b>This is Your Personal Dashboard:</b>",
         DIVIDER,
