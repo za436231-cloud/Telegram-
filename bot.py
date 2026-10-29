@@ -493,7 +493,7 @@ async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- FEES ---
 
-FREE_DEAL_MODE = True
+FREE_DEAL_MODE = False
 
 def slab_fee(amount):
     if amount <= 300:
