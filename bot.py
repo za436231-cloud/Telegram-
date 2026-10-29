@@ -46,7 +46,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN","9137291421:AAH9gfHLwzpcdqS2KRNEBAr4Lt-lp
 # --- SETTINGS (baaki settings) ---
 # Group ke ID. Test group jodna ho to comma lagakar uska ID likho,
 # jaise [-1004383728292, -100123456789]. ID /chatid se milta hai.
-GROUP_IDS = [-1004359419702,]
+GROUP_IDS = [-1004359419702, -1004497823414]
 
 # Sirf in IDs wale log /add aur /close chala sakte hain.
 ADMIN_IDS = [8551387398, 8325643610, 5908309045, 5908309045, 6871818514, 8357704556, 7421724233, 5803014746, 8932481522, 8482606429, 6417452238, 8723310268, 7591739939, 6461140651, 8173464033, 5689046829, 5689046829, 7708547183, 8095489404, 7205601107, 
@@ -563,7 +563,7 @@ def dashboard_text(name):
     lines = [
         f"{STAR} <b>Welcome {esc(name)}!</b>",
         DIVIDER,
-        f"{SHIELD} <b>developer Bot for @ZENOxOG</b>",
+        f"{SHIELD} <b>developer Bot for @ZENOX0G</b>",
         f"{CHAT} <b>Provided by @NOTAxSELLER</b>",
         "",
         f"{SIGN} <b>This is Your Personal Dashboard:</b>",
